@@ -13,10 +13,12 @@ from loguru import logger
 
 from nanobot.agent.context import ContextBuilder
 from nanobot.agent.memory import MemoryStore
+from nanobot.agent.compaction import CompactionSafeguard
 from nanobot.agent.subagent import SubagentManager
 from nanobot.agent.tools.cron import CronTool
 from nanobot.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
 from nanobot.agent.tools.message import MessageTool
+from nanobot.agent.tools.session_mgmt import DumpSessionTool
 from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.agent.tools.shell import ExecTool
 from nanobot.agent.tools.spawn import SpawnTool
@@ -29,6 +31,11 @@ from nanobot.session.manager import Session, SessionManager
 if TYPE_CHECKING:
     from nanobot.config.schema import ExecToolConfig
     from nanobot.cron.service import CronService
+
+
+class SessionCleared(Exception):
+    """Signal that the session has been cleared by a tool."""
+    pass
 
 
 class AgentLoop:
@@ -77,6 +84,7 @@ class AgentLoop:
         self.context = ContextBuilder(workspace)
         self.sessions = session_manager or SessionManager(workspace)
         self.tools = ToolRegistry()
+        self.safeguard = CompactionSafeguard(provider, summarizer_model="gemini-2.0-flash")
         self.subagents = SubagentManager(
             provider=provider,
             workspace=workspace,
@@ -111,6 +119,7 @@ class AgentLoop:
         self.tools.register(WebFetchTool())
         self.tools.register(MessageTool(send_callback=self.bus.publish_outbound))
         self.tools.register(SpawnTool(manager=self.subagents))
+        self.tools.register(DumpSessionTool(session_manager=self.sessions, workspace=self.workspace))
         if self.cron_service:
             self.tools.register(CronTool(self.cron_service))
 
@@ -150,6 +159,10 @@ class AgentLoop:
             if isinstance(cron_tool, CronTool):
                 cron_tool.set_context(channel, chat_id)
 
+        if dump_tool := self.tools.get("new_session"):
+            if isinstance(dump_tool, DumpSessionTool):
+                dump_tool.set_context(channel, chat_id)
+
     @staticmethod
     def _strip_think(text: str | None) -> str | None:
         """Remove <think>…</think> blocks that some models embed in content."""
@@ -173,7 +186,9 @@ class AgentLoop:
         on_progress: Callable[[str], Awaitable[None]] | None = None,
     ) -> tuple[str | None, list[str]]:
         """Run the agent iteration loop. Returns (final_content, tools_used)."""
-        messages = initial_messages
+        # Apply Compaction Safeguard
+        messages = await self.safeguard.process(initial_messages)
+        
         iteration = 0
         final_content = None
         tools_used: list[str] = []
@@ -217,6 +232,10 @@ class AgentLoop:
                     args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
                     logger.info("Tool call: {}({})", tool_call.name, args_str[:200])
                     result = await self.tools.execute(tool_call.name, tool_call.arguments)
+                    
+                    if "[CLEAR_SESSION_STATE_NOW]" in result:
+                        raise SessionCleared(result.replace("[CLEAR_SESSION_STATE_NOW]", "").strip())
+
                     messages = self.context.add_tool_result(
                         messages, tool_call.id, tool_call.name, result
                     )
@@ -352,9 +371,16 @@ class AgentLoop:
                 channel=msg.channel, chat_id=msg.chat_id, content=content, metadata=meta,
             ))
 
-        final_content, tools_used = await self._run_agent_loop(
-            initial_messages, on_progress=on_progress or _bus_progress,
-        )
+        try:
+            final_content, tools_used = await self._run_agent_loop(
+                initial_messages, on_progress=on_progress or _bus_progress,
+            )
+        except SessionCleared as e:
+            session.clear()
+            self.safeguard._safeguard_active = False
+            self.sessions.save(session)
+            final_content = str(e)
+            tools_used = ["new_session"]
 
         if final_content is None:
             final_content = "I've completed processing but have no response to give."
