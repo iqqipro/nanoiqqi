@@ -1,4 +1,4 @@
-"""CLI commands for nanobot."""
+"""CLI commands for iqqibot."""
 
 import asyncio
 import os
@@ -18,17 +18,50 @@ from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.patch_stdout import patch_stdout
 
-from nanobot import __version__, __logo__
+from nanobot import __version__, __logo__, __brand__
 from nanobot.config.schema import Config
 
 app = typer.Typer(
-    name="nanobot",
-    help=f"{__logo__} nanobot - Personal AI Assistant",
+    name="iqqibot",
+    help=f"{__logo__} iqqibot - Personal AI Assistant",
     no_args_is_help=True,
 )
 
 console = Console()
 EXIT_COMMANDS = {"exit", "quit", "/exit", "/quit", ":q"}
+
+# ---------------------------------------------------------------------------
+# ASCII banner & gradient helpers
+# ---------------------------------------------------------------------------
+
+_BANNER = r"""
+  ██╗ ██████╗  ██████╗ ██╗██████╗  ██████╗ ████████╗
+  ██║██╔═══██╗██╔═══██╗██║██╔══██╗██╔═══██╗╚══██╔══╝
+  ██║██║   ██║██║   ██║██║██████╔╝██║   ██║   ██║
+  ██║██║▄▄ ██║██║▄▄ ██║██║██╔══██╗██║   ██║   ██║
+  ██║╚██████╔╝╚██████╔╝██║██████╔╝╚██████╔╝   ██║
+  ╚═╝ ╚══▀▀═╝  ╚══▀▀═╝ ╚═╝╚═════╝  ╚═════╝    ╚═╝
+"""
+
+_GRADIENT_COLORS = [
+    "#e6e600", "#ccdb00", "#b3d600", "#99d100", "#80cc00",
+    "#66c700", "#4dc200", "#33bd00", "#1ab800", "#00b300",
+]
+
+
+def _print_banner() -> None:
+    """Print the ASCII banner with a yellow-to-green gradient."""
+    lines = _BANNER.strip("\n").split("\n")
+    total = len(lines) or 1
+    for i, line in enumerate(lines):
+        color = _GRADIENT_COLORS[min(i * len(_GRADIENT_COLORS) // total, len(_GRADIENT_COLORS) - 1)]
+        console.print(f"[bold {color}]{line}[/bold {color}]")
+    console.print()
+
+
+def _styled(text: str) -> str:
+    """Return text wrapped in the iqqibot green style."""
+    return f"[bold green]{__logo__} {text}[/bold green]"
 
 # ---------------------------------------------------------------------------
 # CLI input: prompt_toolkit for editing, paste, history, and display
@@ -102,7 +135,7 @@ def _print_agent_response(response: str, render_markdown: bool) -> None:
     content = response or ""
     body = Markdown(content) if render_markdown else Text(content)
     console.print()
-    console.print(f"[cyan]{__logo__} nanobot[/cyan]")
+    console.print(f"[bold green]{__logo__} {__brand__}[/bold green]")
     console.print(body)
     console.print()
 
@@ -125,7 +158,7 @@ async def _read_interactive_input_async() -> str:
     try:
         with patch_stdout():
             return await _PROMPT_SESSION.prompt_async(
-                HTML("<b fg='ansiblue'>You:</b> "),
+                HTML("<b fg='ansiyellow'>You:</b> "),
             )
     except EOFError as exc:
         raise KeyboardInterrupt from exc
@@ -134,7 +167,8 @@ async def _read_interactive_input_async() -> str:
 
 def version_callback(value: bool):
     if value:
-        console.print(f"{__logo__} nanobot v{__version__}")
+        _print_banner()
+        console.print(f"  [bold green]v{__version__}[/bold green]")
         raise typer.Exit()
 
 
@@ -144,7 +178,7 @@ def main(
         None, "--version", "-v", callback=version_callback, is_eager=True
     ),
 ):
-    """nanobot - Personal AI Assistant."""
+    """iqqibot - Personal AI Assistant."""
     pass
 
 
@@ -188,7 +222,8 @@ def onboard():
     # Create default bootstrap files
     _create_workspace_templates(workspace)
     
-    console.print(f"\n{__logo__} nanobot is ready!")
+    _print_banner()
+    console.print(_styled("iqqibot is ready!"))
     console.print("\nNext steps:")
     console.print("  1. Add your API key to [cyan]~/.nanobot/config.json[/cyan]")
     console.print("     Get one at: https://openrouter.ai/keys")
@@ -214,7 +249,7 @@ You are a helpful AI assistant. Be concise, accurate, and friendly.
 """,
         "SOUL.md": """# Soul
 
-I am nanobot, a lightweight AI assistant.
+I am iqqibot, a lightweight AI assistant.
 
 ## Personality
 
@@ -280,41 +315,101 @@ This file stores important information that should persist across sessions.
 
 
 def _make_provider(config: Config):
-    """Create the appropriate LLM provider from config."""
+    """Create the appropriate LLM provider from config, wrapped with routing if configured."""
     from nanobot.providers.litellm_provider import LiteLLMProvider
     from nanobot.providers.openai_codex_provider import OpenAICodexProvider
     from nanobot.providers.custom_provider import CustomProvider
+    from nanobot.providers.routing import RoutingProvider
 
+    routing = config.routing
     model = config.agents.defaults.model
+
+    # Resolve default model through aliases so provider matching works correctly
+    if routing.aliases:
+        model = routing.aliases.get(model.lower(), model)
+
     provider_name = config.get_provider_name(model)
     p = config.get_provider(model)
 
     # OpenAI Codex (OAuth)
     if provider_name == "openai_codex" or model.startswith("openai-codex/"):
-        return OpenAICodexProvider(default_model=model)
-
-    # Custom: direct OpenAI-compatible endpoint, bypasses LiteLLM
-    if provider_name == "custom":
-        return CustomProvider(
+        inner = OpenAICodexProvider(default_model=model)
+    elif provider_name == "custom":
+        inner = CustomProvider(
             api_key=p.api_key if p else "no-key",
             api_base=config.get_api_base(model) or "http://localhost:8000/v1",
             default_model=model,
         )
+    else:
+        from nanobot.providers.registry import find_by_name
+        spec = find_by_name(provider_name)
+        if not model.startswith("bedrock/") and not (p and p.api_key) and not (spec and spec.is_oauth):
+            console.print("[red]Error: No API key configured.[/red]")
+            console.print("Set one in ~/.nanobot/config.json under providers section")
+            raise typer.Exit(1)
 
-    from nanobot.providers.registry import find_by_name
-    spec = find_by_name(provider_name)
-    if not model.startswith("bedrock/") and not (p and p.api_key) and not (spec and spec.is_oauth):
-        console.print("[red]Error: No API key configured.[/red]")
-        console.print("Set one in ~/.nanobot/config.json under providers section")
-        raise typer.Exit(1)
+        inner = LiteLLMProvider(
+            api_key=p.api_key if p else None,
+            api_base=config.get_api_base(model),
+            default_model=model,
+            extra_headers=p.extra_headers if p else None,
+            provider_name=provider_name,
+        )
 
-    return LiteLLMProvider(
-        api_key=p.api_key if p else None,
-        api_base=config.get_api_base(model),
-        default_model=model,
-        extra_headers=p.extra_headers if p else None,
-        provider_name=provider_name,
-    )
+    # Smart routing: only when tools.smart_router.api_key is set (Artificial Analysis API).
+    # Model data is loaded from AA; routing.* (policy, judge_model, weights) still apply.
+    smart_router_cfg = getattr(config.tools, "smart_router", None)
+    aa_api_key = (smart_router_cfg.api_key or "").strip() if smart_router_cfg else ""
+    if aa_api_key:
+        from nanobot.providers.smart_router import SmartRouter
+        from nanobot.providers.router_metrics import RouterMetrics
+        from nanobot.providers.artificial_analysis import fetch_models, fetch_top_agentic_models
+        from nanobot.providers.subagent_router import SubagentRouter
+        metrics_path = config.workspace_path / ".nanobot" / "router_metrics.json"
+        metrics = RouterMetrics(metrics_path)
+        aa_base = (smart_router_cfg.api_base or "").strip() or "https://artificialanalysis.ai/api/v2"
+        openrouter_key = (getattr(config.providers.openrouter, "api_key", None) or "").strip()
+        top_n = int(getattr(smart_router_cfg, "top_agentic_n", 15) or 15)
+        capabilities_top_agentic = fetch_top_agentic_models(
+            aa_api_key,
+            aa_base,
+            top_n=top_n,
+            use_cache=True,
+            openrouter_api_key=openrouter_key or None,
+        )
+        main_provider = SmartRouter(
+            inner,
+            policy=getattr(routing, "policy", "balanced"),
+            candidate_models=None,
+            judge_model=getattr(routing, "judge_model", "") or "",
+            weights_override=getattr(routing, "weights", None) or None,
+            metrics=metrics,
+            default_model_hint=model,
+            capabilities_from_api=capabilities_top_agentic if capabilities_top_agentic else None,
+            max_cost_per_request_usd=float(getattr(smart_router_cfg, "max_cost_per_request_usd", 0) or 0),
+        )
+        # Subagent router: full AA list for task-aware cost-benefit selection
+        subagent_capabilities = fetch_models(
+            aa_api_key,
+            aa_base,
+            use_cache=True,
+            openrouter_api_key=openrouter_key or None,
+        )
+        subagent_provider = SubagentRouter(
+            inner,
+            capabilities=subagent_capabilities if subagent_capabilities else [],
+            default_model_hint=model,
+            judge_model=getattr(routing, "judge_model", "") or "",
+        )
+        return main_provider, subagent_provider
+
+    if routing.aliases or routing.fallback_models:
+        return RoutingProvider(
+            inner,
+            aliases=routing.aliases or None,
+            fallback_models=routing.fallback_models or None,
+        ), None
+    return inner, None
 
 
 # ============================================================================
@@ -327,7 +422,7 @@ def gateway(
     port: int = typer.Option(18790, "--port", "-p", help="Gateway port"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
 ):
-    """Start the nanobot gateway."""
+    """Start the iqqibot gateway."""
     from nanobot.config.loader import load_config, get_data_dir
     from nanobot.bus.queue import MessageBus
     from nanobot.agent.loop import AgentLoop
@@ -341,11 +436,12 @@ def gateway(
         import logging
         logging.basicConfig(level=logging.DEBUG)
     
-    console.print(f"{__logo__} Starting nanobot gateway on port {port}...")
+    _print_banner()
+    console.print(_styled(f"Starting gateway on port {port}..."))
     
     config = load_config()
     bus = MessageBus()
-    provider = _make_provider(config)
+    provider, subagent_provider = _make_provider(config)
     session_manager = SessionManager(config.workspace_path)
     
     # Create cron service first (callback set after agent creation)
@@ -353,11 +449,15 @@ def gateway(
     cron = CronService(cron_store_path)
     
     # Create agent with cron service
+    _tc_model = (config.agents.defaults.tool_calling_model or "").strip() or None
+    if _tc_model and config.routing.aliases:
+        _tc_model = config.routing.aliases.get(_tc_model.lower(), _tc_model)
     agent = AgentLoop(
         bus=bus,
         provider=provider,
         workspace=config.workspace_path,
         model=config.agents.defaults.model,
+        tool_calling_model=_tc_model,
         temperature=config.agents.defaults.temperature,
         max_tokens=config.agents.defaults.max_tokens,
         max_iterations=config.agents.defaults.max_tool_iterations,
@@ -368,6 +468,9 @@ def gateway(
         restrict_to_workspace=config.tools.restrict_to_workspace,
         session_manager=session_manager,
         mcp_servers=config.tools.mcp_servers,
+        image_gen_api_key=config.providers.openrouter.api_key or None,
+        image_gen_model=config.tools.image.model or None,
+        subagent_provider=subagent_provider,
     )
     
     # Set cron callback (needs agent)
@@ -390,15 +493,20 @@ def gateway(
     cron.on_job = on_cron_job
     
     # Create heartbeat service
-    async def on_heartbeat(prompt: str) -> str:
+    routing = config.routing
+    hb_model = routing.heartbeat_model or None
+    hb_interval = routing.heartbeat_interval_s or 30 * 60
+
+    async def on_heartbeat(prompt: str, model: str | None = None) -> str:
         """Execute heartbeat through the agent."""
-        return await agent.process_direct(prompt, session_key="heartbeat")
+        return await agent.process_direct(prompt, session_key="heartbeat", model=model)
     
     heartbeat = HeartbeatService(
         workspace=config.workspace_path,
         on_heartbeat=on_heartbeat,
-        interval_s=30 * 60,  # 30 minutes
-        enabled=True
+        interval_s=hb_interval,
+        enabled=True,
+        model=hb_model,
     )
     
     # Create channel manager
@@ -413,7 +521,9 @@ def gateway(
     if cron_status["jobs"] > 0:
         console.print(f"[green]✓[/green] Cron: {cron_status['jobs']} scheduled jobs")
     
-    console.print(f"[green]✓[/green] Heartbeat: every 30m")
+    hb_min = hb_interval // 60
+    hb_model_label = f" ({hb_model})" if hb_model else ""
+    console.print(f"[green]✓[/green] Heartbeat: every {hb_min}m{hb_model_label}")
     
     async def run():
         try:
@@ -447,7 +557,7 @@ def agent(
     message: str = typer.Option(None, "--message", "-m", help="Message to send to the agent"),
     session_id: str = typer.Option("cli:direct", "--session", "-s", help="Session ID"),
     markdown: bool = typer.Option(True, "--markdown/--no-markdown", help="Render assistant output as Markdown"),
-    logs: bool = typer.Option(False, "--logs/--no-logs", help="Show nanobot runtime logs during chat"),
+    logs: bool = typer.Option(False, "--logs/--no-logs", help="Show iqqibot runtime logs during chat"),
 ):
     """Interact with the agent directly."""
     from nanobot.config.loader import load_config, get_data_dir
@@ -459,7 +569,7 @@ def agent(
     config = load_config()
     
     bus = MessageBus()
-    provider = _make_provider(config)
+    provider, subagent_provider = _make_provider(config)
 
     # Create cron service for tool usage (no callback needed for CLI unless running)
     cron_store_path = get_data_dir() / "cron" / "jobs.json"
@@ -470,11 +580,15 @@ def agent(
     else:
         logger.disable("nanobot")
     
+    _tc_model = (config.agents.defaults.tool_calling_model or "").strip() or None
+    if _tc_model and config.routing.aliases:
+        _tc_model = config.routing.aliases.get(_tc_model.lower(), _tc_model)
     agent_loop = AgentLoop(
         bus=bus,
         provider=provider,
         workspace=config.workspace_path,
         model=config.agents.defaults.model,
+        tool_calling_model=_tc_model,
         temperature=config.agents.defaults.temperature,
         max_tokens=config.agents.defaults.max_tokens,
         max_iterations=config.agents.defaults.max_tool_iterations,
@@ -484,18 +598,21 @@ def agent(
         cron_service=cron,
         restrict_to_workspace=config.tools.restrict_to_workspace,
         mcp_servers=config.tools.mcp_servers,
+        image_gen_api_key=config.providers.openrouter.api_key or None,
+        image_gen_model=config.tools.image.model or None,
+        subagent_provider=subagent_provider,
     )
-    
+
     # Show spinner when logs are off (no output to miss); skip when logs are on
     def _thinking_ctx():
         if logs:
             from contextlib import nullcontext
             return nullcontext()
         # Animated spinner is safe to use with prompt_toolkit input handling
-        return console.status("[dim]nanobot is thinking...[/dim]", spinner="dots")
+        return console.status("[dim green]iqqibot is thinking...[/dim green]", spinner="dots")
 
     async def _cli_progress(content: str) -> None:
-        console.print(f"  [dim]↳ {content}[/dim]")
+        console.print(f"  [dim green]↳ {content}[/dim green]")
 
     if message:
         # Single message mode — direct call, no bus needed
@@ -510,7 +627,8 @@ def agent(
         # Interactive mode — route through bus like other channels
         from nanobot.bus.events import InboundMessage
         _init_prompt_session()
-        console.print(f"{__logo__} Interactive mode (type [bold]exit[/bold] or [bold]Ctrl+C[/bold] to quit)\n")
+        _print_banner()
+        console.print(_styled("Interactive mode") + "  [dim](type [bold]exit[/bold] or [bold]Ctrl+C[/bold] to quit)[/dim]\n")
 
         if ":" in session_id:
             cli_channel, cli_chat_id = session_id.split(":", 1)
@@ -535,7 +653,7 @@ def agent(
                     try:
                         msg = await asyncio.wait_for(bus.consume_outbound(), timeout=1.0)
                         if msg.metadata.get("_progress"):
-                            console.print(f"  [dim]↳ {msg.content}[/dim]")
+                            console.print(f"  [dim green]↳ {msg.content}[/dim green]")
                         elif not turn_done.is_set():
                             if msg.content:
                                 turn_response.append(msg.content)
@@ -730,7 +848,7 @@ def _get_bridge_dir() -> Path:
         console.print("Try reinstalling: pip install --force-reinstall nanobot")
         raise typer.Exit(1)
     
-    console.print(f"{__logo__} Setting up bridge...")
+    console.print(_styled("Setting up bridge..."))
     
     # Copy to user directory
     user_bridge.parent.mkdir(parents=True, exist_ok=True)
@@ -765,7 +883,7 @@ def channels_login():
     config = load_config()
     bridge_dir = _get_bridge_dir()
     
-    console.print(f"{__logo__} Starting bridge...")
+    console.print(_styled("Starting bridge..."))
     console.print("Scan the QR code to connect.\n")
     
     env = {**os.environ}
@@ -946,13 +1064,17 @@ def cron_run(
     logger.disable("nanobot")
 
     config = load_config()
-    provider = _make_provider(config)
+    provider, subagent_provider = _make_provider(config)
     bus = MessageBus()
+    _tc_model = (config.agents.defaults.tool_calling_model or "").strip() or None
+    if _tc_model and config.routing.aliases:
+        _tc_model = config.routing.aliases.get(_tc_model.lower(), _tc_model)
     agent_loop = AgentLoop(
         bus=bus,
         provider=provider,
         workspace=config.workspace_path,
         model=config.agents.defaults.model,
+        tool_calling_model=_tc_model,
         temperature=config.agents.defaults.temperature,
         max_tokens=config.agents.defaults.max_tokens,
         max_iterations=config.agents.defaults.max_tool_iterations,
@@ -961,6 +1083,9 @@ def cron_run(
         exec_config=config.tools.exec,
         restrict_to_workspace=config.tools.restrict_to_workspace,
         mcp_servers=config.tools.mcp_servers,
+        image_gen_api_key=config.providers.openrouter.api_key or None,
+        image_gen_model=config.tools.image.model or None,
+        subagent_provider=subagent_provider,
     )
 
     store_path = get_data_dir() / "cron" / "jobs.json"
@@ -998,14 +1123,15 @@ def cron_run(
 
 @app.command()
 def status():
-    """Show nanobot status."""
+    """Show iqqibot status."""
     from nanobot.config.loader import load_config, get_config_path
 
     config_path = get_config_path()
     config = load_config()
     workspace = config.workspace_path
 
-    console.print(f"{__logo__} nanobot Status\n")
+    _print_banner()
+    console.print(_styled("Status") + "\n")
 
     console.print(f"Config: {config_path} {'[green]✓[/green]' if config_path.exists() else '[red]✗[/red]'}")
     console.print(f"Workspace: {workspace} {'[green]✓[/green]' if workspace.exists() else '[red]✗[/red]'}")
@@ -1070,7 +1196,7 @@ def provider_login(
         console.print(f"[red]Login not implemented for {spec.label}[/red]")
         raise typer.Exit(1)
 
-    console.print(f"{__logo__} OAuth Login - {spec.label}\n")
+    console.print(_styled(f"OAuth Login - {spec.label}") + "\n")
     handler()
 
 

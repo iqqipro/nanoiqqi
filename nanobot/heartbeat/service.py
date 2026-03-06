@@ -1,5 +1,7 @@
 """Heartbeat service - periodic agent wake-up to check for tasks."""
 
+from __future__ import annotations
+
 import asyncio
 from pathlib import Path
 from typing import Any, Callable, Coroutine
@@ -49,11 +51,13 @@ class HeartbeatService:
         on_heartbeat: Callable[[str], Coroutine[Any, Any, str]] | None = None,
         interval_s: int = DEFAULT_HEARTBEAT_INTERVAL_S,
         enabled: bool = True,
+        model: str | None = None,
     ):
         self.workspace = workspace
         self.on_heartbeat = on_heartbeat
         self.interval_s = interval_s
         self.enabled = enabled
+        self.model = model
         self._running = False
         self._task: asyncio.Task | None = None
     
@@ -108,13 +112,12 @@ class HeartbeatService:
             logger.debug("Heartbeat: no tasks (HEARTBEAT.md empty)")
             return
         
-        logger.info("Heartbeat: checking for tasks...")
+        logger.info("Heartbeat: checking for tasks... (model={})", self.model or "default")
         
         if self.on_heartbeat:
             try:
-                response = await self.on_heartbeat(HEARTBEAT_PROMPT)
+                response = await self.on_heartbeat(HEARTBEAT_PROMPT, self.model)
                 
-                # Check if agent said "nothing to do"
                 if HEARTBEAT_OK_TOKEN.replace("_", "") in response.upper().replace("_", ""):
                     logger.info("Heartbeat: OK (no action needed)")
                 else:
@@ -126,5 +129,5 @@ class HeartbeatService:
     async def trigger_now(self) -> str | None:
         """Manually trigger a heartbeat."""
         if self.on_heartbeat:
-            return await self.on_heartbeat(HEARTBEAT_PROMPT)
+            return await self.on_heartbeat(HEARTBEAT_PROMPT, self.model)
         return None

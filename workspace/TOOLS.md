@@ -63,6 +63,16 @@ web_fetch(url: str, extractMode: str = "markdown", maxChars: int = 50000) -> str
 - Supports markdown or plain text extraction
 - Output is truncated at 50,000 characters by default
 
+## Image Generation
+
+### generate_image
+Generate an image from a text prompt using OpenRouter (e.g. Flux, Sourceful).
+```
+generate_image(prompt: str, model: str = None) -> str
+```
+
+Use when the user asks for a photo, illustration, or picture. Images are saved under `workspace/.nanobot/generated/`. Returns the file path(s). Requires OpenRouter API key; optional `tools.image.model` in config for default model.
+
 ## Communication
 
 ### message

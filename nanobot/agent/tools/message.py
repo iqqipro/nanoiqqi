@@ -1,5 +1,6 @@
 """Message tool for sending messages to users."""
 
+from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from nanobot.agent.tools.base import Tool
@@ -15,11 +16,13 @@ class MessageTool(Tool):
         default_channel: str = "",
         default_chat_id: str = "",
         default_message_id: str | None = None,
+        workspace: Path | None = None,
     ):
         self._send_callback = send_callback
         self._default_channel = default_channel
         self._default_chat_id = default_chat_id
         self._default_message_id = default_message_id
+        self._workspace = workspace
         self._sent_in_turn: bool = False
 
     def set_context(self, channel: str, chat_id: str, message_id: str | None = None) -> None:
@@ -64,7 +67,7 @@ class MessageTool(Tool):
                 "media": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Optional: list of file paths to attach (images, audio, documents)"
+                    "description": "Optional: list of file paths to attach. Use only exact paths returned by generate_image or other tools; never invent paths."
                 }
             },
             "required": ["content"]
@@ -88,6 +91,20 @@ class MessageTool(Tool):
 
         if not self._send_callback:
             return "Error: Message sending not configured"
+
+        if media and self._workspace:
+            missing = []
+            for p in media:
+                path = Path(p)
+                if not path.is_absolute():
+                    path = self._workspace / p
+                if not path.exists():
+                    missing.append(p)
+            if missing:
+                return (
+                    f"Error: File(s) not found: {missing}. "
+                    "Use only the exact path(s) returned by generate_image or other tools; do not invent paths."
+                )
 
         msg = OutboundMessage(
             channel=channel,

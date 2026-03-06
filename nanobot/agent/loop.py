@@ -23,6 +23,7 @@ from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.agent.tools.shell import ExecTool
 from nanobot.agent.tools.spawn import SpawnTool
 from nanobot.agent.tools.web import WebFetchTool, WebSearchTool
+from nanobot.agent.tools.image_gen import GenerateImageTool
 from nanobot.bus.events import InboundMessage, OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.providers.base import LLMProvider
@@ -56,6 +57,7 @@ class AgentLoop:
         provider: LLMProvider,
         workspace: Path,
         model: str | None = None,
+        tool_calling_model: str | None = None,
         max_iterations: int = 20,
         temperature: float = 0.7,
         max_tokens: int = 4096,
@@ -66,12 +68,16 @@ class AgentLoop:
         restrict_to_workspace: bool = False,
         session_manager: SessionManager | None = None,
         mcp_servers: dict | None = None,
+        image_gen_api_key: str | None = None,
+        image_gen_model: str | None = None,
+        subagent_provider: LLMProvider | None = None,
     ):
         from nanobot.config.schema import ExecToolConfig
         self.bus = bus
         self.provider = provider
         self.workspace = workspace
         self.model = model or provider.get_default_model()
+        self._tool_calling_model = (tool_calling_model or "").strip() or None
         self.max_iterations = max_iterations
         self.temperature = temperature
         self.max_tokens = max_tokens
@@ -80,13 +86,15 @@ class AgentLoop:
         self.exec_config = exec_config or ExecToolConfig()
         self.cron_service = cron_service
         self.restrict_to_workspace = restrict_to_workspace
+        self._image_gen_api_key = image_gen_api_key
+        self._image_gen_model = image_gen_model
 
         self.context = ContextBuilder(workspace)
         self.sessions = session_manager or SessionManager(workspace)
         self.tools = ToolRegistry()
-        self.safeguard = CompactionSafeguard(provider, summarizer_model="gemini-2.0-flash")
+        self.safeguard = CompactionSafeguard(provider, summarizer_model="google/gemini-2.5-flash")
         self.subagents = SubagentManager(
-            provider=provider,
+            provider=subagent_provider or provider,
             workspace=workspace,
             bus=bus,
             model=self.model,
@@ -117,7 +125,14 @@ class AgentLoop:
         ))
         self.tools.register(WebSearchTool(api_key=self.brave_api_key))
         self.tools.register(WebFetchTool())
-        self.tools.register(MessageTool(send_callback=self.bus.publish_outbound))
+        self.tools.register(
+            GenerateImageTool(
+                api_key=self._image_gen_api_key,
+                default_model=self._image_gen_model or "black-forest-labs/flux-2-pro",
+                workspace=self.workspace,
+            )
+        )
+        self.tools.register(MessageTool(send_callback=self.bus.publish_outbound, workspace=self.workspace))
         self.tools.register(SpawnTool(manager=self.subagents))
         self.tools.register(DumpSessionTool(session_manager=self.sessions, workspace=self.workspace))
         if self.cron_service:
@@ -184,6 +199,7 @@ class AgentLoop:
         self,
         initial_messages: list[dict],
         on_progress: Callable[[str], Awaitable[None]] | None = None,
+        model_override: str | None = None,
     ) -> tuple[str | None, list[str]]:
         """Run the agent iteration loop. Returns (final_content, tools_used)."""
         # Apply Compaction Safeguard
@@ -192,6 +208,7 @@ class AgentLoop:
         iteration = 0
         final_content = None
         tools_used: list[str] = []
+        effective_model = model_override or self._tool_calling_model or self.model
 
         while iteration < self.max_iterations:
             iteration += 1
@@ -199,7 +216,7 @@ class AgentLoop:
             response = await self.provider.chat(
                 messages=messages,
                 tools=self.tools.get_definitions(),
-                model=self.model,
+                model=effective_model,
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,
             )
@@ -294,6 +311,7 @@ class AgentLoop:
         msg: InboundMessage,
         session_key: str | None = None,
         on_progress: Callable[[str], Awaitable[None]] | None = None,
+        model_override: str | None = None,
     ) -> OutboundMessage | None:
         """Process a single inbound message and return the response."""
         # System messages: parse origin from chat_id ("channel:chat_id")
@@ -308,7 +326,7 @@ class AgentLoop:
                 history=session.get_history(max_messages=self.memory_window),
                 current_message=msg.content, channel=channel, chat_id=chat_id,
             )
-            final_content, _ = await self._run_agent_loop(messages)
+            final_content, _ = await self._run_agent_loop(messages, model_override=model_override)
             session.add_message("user", f"[System: {msg.sender_id}] {msg.content}")
             session.add_message("assistant", final_content or "Background task completed.")
             self.sessions.save(session)
@@ -339,7 +357,7 @@ class AgentLoop:
                                   content="New session started. Memory consolidation in progress.")
         if cmd == "/help":
             return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
-                                  content="🐈 nanobot commands:\n/new — Start a new conversation\n/help — Show available commands")
+                                  content="⚡ iqqibot commands:\n/new — Start a new conversation\n/help — Show available commands")
 
         if len(session.messages) > self.memory_window and session.key not in self._consolidating:
             self._consolidating.add(session.key)
@@ -373,7 +391,9 @@ class AgentLoop:
 
         try:
             final_content, tools_used = await self._run_agent_loop(
-                initial_messages, on_progress=on_progress or _bus_progress,
+                initial_messages,
+                on_progress=on_progress or _bus_progress,
+                model_override=model_override,
             )
         except SessionCleared as e:
             session.clear()
@@ -416,9 +436,16 @@ class AgentLoop:
         channel: str = "cli",
         chat_id: str = "direct",
         on_progress: Callable[[str], Awaitable[None]] | None = None,
+        model: str | None = None,
     ) -> str:
-        """Process a message directly (for CLI or cron usage)."""
+        """Process a message directly (for CLI or cron usage).
+
+        Args:
+            model: Optional model override (e.g. cheap model for heartbeat).
+        """
         await self._connect_mcp()
         msg = InboundMessage(channel=channel, sender_id="user", chat_id=chat_id, content=content)
-        response = await self._process_message(msg, session_key=session_key, on_progress=on_progress)
+        response = await self._process_message(
+            msg, session_key=session_key, on_progress=on_progress, model_override=model,
+        )
         return response.content if response else ""

@@ -15,6 +15,7 @@ You have access to:
 - File operations (read, write, edit, list)
 - Shell commands (exec)
 - Web access (search, fetch)
+- **Image generation (generate_image)** — When the user asks for a photo, illustration, drawing, or picture, use the generate_image tool with a clear prompt. The image is saved in the workspace; you can tell the user the path or use the message tool to send it if the channel supports attachments.
 - Messaging (message)
 - Background tasks (spawn)
 

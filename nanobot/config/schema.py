@@ -1,6 +1,7 @@
 """Configuration schema using Pydantic."""
 
 from pathlib import Path
+from typing import Literal
 from pydantic import BaseModel, Field, ConfigDict
 from pydantic.alias_generators import to_camel
 from pydantic_settings import BaseSettings
@@ -184,6 +185,7 @@ class AgentDefaults(Base):
 
     workspace: str = "~/.nanobot/workspace"
     model: str = "anthropic/claude-opus-4-5"
+    tool_calling_model: str = Field(default="", description="If set, use this model for agent turns (e.g. minimax) to reduce tool-calling hallucinations; overrides smart router for the main loop")
     max_tokens: int = 8192
     temperature: float = 0.7
     max_tool_iterations: int = 20
@@ -226,6 +228,30 @@ class ProvidersConfig(Base):
     github_copilot: ProviderConfig = Field(default_factory=ProviderConfig)  # Github Copilot (OAuth)
 
 
+# Default policy weights: fit, cost, latency, reliability, structure (must sum to 1.0)
+DEFAULT_ROUTING_WEIGHTS: dict[str, dict[str, float]] = {
+    "cheap": {"fit": 0.20, "cost": 0.50, "latency": 0.10, "reliability": 0.15, "structure": 0.05},
+    "balanced": {"fit": 0.40, "cost": 0.20, "latency": 0.15, "reliability": 0.20, "structure": 0.05},
+    "best": {"fit": 0.50, "cost": 0.05, "latency": 0.05, "reliability": 0.30, "structure": 0.10},
+    "low_latency": {"fit": 0.25, "cost": 0.10, "latency": 0.40, "reliability": 0.20, "structure": 0.05},
+}
+
+
+class RoutingConfig(Base):
+    """Model routing: aliases, fallback chain, heartbeat, and optional five-stage smart routing."""
+
+    aliases: dict[str, str] = Field(default_factory=dict)
+    fallback_models: list[str] = Field(default_factory=list)
+    heartbeat_model: str = ""
+    heartbeat_interval_s: int = 30 * 60
+    # Five-stage smart routing (OpenRouter)
+    smart_routing: bool = False
+    policy: Literal["cheap", "balanced", "best", "low_latency"] = "balanced"
+    candidate_models: list[str] = Field(default_factory=list, description="OpenRouter model ids; if empty, uses built-in list")
+    judge_model: str = Field(default="", description="Optional small LLM for request classification (e.g. openrouter/google/gemini-2.5-flash-lite)")
+    weights: dict[str, dict[str, float]] = Field(default_factory=dict, description="Optional per-policy weight overrides")
+
+
 class GatewayConfig(Base):
     """Gateway/server configuration."""
 
@@ -252,6 +278,21 @@ class ExecToolConfig(Base):
     timeout: int = 60
 
 
+class ImageGenConfig(Base):
+    """Image generation tool configuration (OpenRouter modalities)."""
+
+    model: str = "black-forest-labs/flux-2-pro"  # OpenRouter image model id (without openrouter/ prefix)
+
+
+class SmartRouterConfig(Base):
+    """Smart routing tool: uses Artificial Analysis API for model data. Only active when api_key is set."""
+
+    api_key: str = Field(default="", description="Artificial Analysis API key (get from artificialanalysis.ai)")
+    api_base: str = Field(default="https://artificialanalysis.ai/api/v2", description="Artificial Analysis API base URL")
+    max_cost_per_request_usd: float = Field(default=0, description="Cap: exclude models whose estimated cost for the request exceeds this (0 = no cap)")
+    top_agentic_n: int = Field(default=15, description="Use only top N models by AA Agentic Index (main router); 0 = use all AA models")
+
+
 class MCPServerConfig(Base):
     """MCP server connection configuration (stdio or HTTP)."""
 
@@ -267,6 +308,8 @@ class ToolsConfig(Base):
 
     web: WebToolsConfig = Field(default_factory=WebToolsConfig)
     exec: ExecToolConfig = Field(default_factory=ExecToolConfig)
+    image: ImageGenConfig = Field(default_factory=ImageGenConfig)
+    smart_router: SmartRouterConfig = Field(default_factory=SmartRouterConfig)
     restrict_to_workspace: bool = False  # If true, restrict all tool access to workspace directory
     mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
 
@@ -277,6 +320,7 @@ class Config(BaseSettings):
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
     channels: ChannelsConfig = Field(default_factory=ChannelsConfig)
     providers: ProvidersConfig = Field(default_factory=ProvidersConfig)
+    routing: RoutingConfig = Field(default_factory=RoutingConfig)
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
 

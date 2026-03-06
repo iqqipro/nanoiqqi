@@ -37,7 +37,7 @@ class CompactionSafeguard:
     CONTEXT_PRESERVATION_WINDOW = 5 # Keep last 5 messages intact
     SUMMARY_MAX_TOKENS = 2_000
 
-    def __init__(self, provider: AsyncLLMProvider, summarizer_model: str = "gemini-2.0-flash"):
+    def __init__(self, provider: AsyncLLMProvider, summarizer_model: str = "google/gemini-2.5-flash"):
         self.provider = provider
         self.summarizer_model = summarizer_model
         self._safeguard_active = False

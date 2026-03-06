@@ -62,10 +62,7 @@ class DumpSessionTool(Tool):
         file_path = ltm_dir / filename
         
         try:
-            file_path.write_text("
-
-".join(lines), encoding="utf-8")
-            return f"Session successfully dumped to {file_path}.
-[CLEAR_SESSION_STATE_NOW]"
+            file_path.write_text("\n".join(lines), encoding="utf-8")
+            return f"Session successfully dumped to {file_path}.\n[CLEAR_SESSION_STATE_NOW]"
         except Exception as e:
             return f"Error dumping session: {e}"
