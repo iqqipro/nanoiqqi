@@ -193,9 +193,9 @@ class DiscordChannel(BaseChannel):
                 "token": self.config.token,
                 "intents": self.config.intents,
                 "properties": {
-                    "os": "nanobot",
-                    "browser": "nanobot",
-                    "device": "nanobot",
+                    "os": "iqqibot",
+                    "browser": "iqqibot",
+                    "device": "iqqibot",
                 },
             },
         }

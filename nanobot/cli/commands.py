@@ -3,6 +3,8 @@
 import asyncio
 import os
 import signal
+import time
+import threading
 from pathlib import Path
 import select
 import sys
@@ -27,12 +29,20 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 
-console = Console()
+console = Console(color_system="truecolor")
 EXIT_COMMANDS = {"exit", "quit", "/exit", "/quit", ":q"}
 
 # ---------------------------------------------------------------------------
-# ASCII banner & gradient helpers
+# CLI color palette — single source of truth for the whole interface
 # ---------------------------------------------------------------------------
+# Low/no red (R) in hex so terminals don't render as orange. Green bolt + yellow bolt.
+# Green bolt: ASCII, cat, bot branding, success, links, tables
+# Yellow bolt: user label ("You:"), warnings
+# ---------------------------------------------------------------------------
+
+_GREEN_BOLT = "#b7ff00"
+_YELLOW_BOLT = "#f0fc08"
+_BLACK = "#000000"
 
 _BANNER = r"""
   ██╗ ██████╗  ██████╗ ██╗██████╗  ██████╗ ████████╗
@@ -43,25 +53,67 @@ _BANNER = r"""
   ╚═╝ ╚══▀▀═╝  ╚══▀▀═╝ ╚═╝╚═════╝  ╚═════╝    ╚═╝
 """
 
-_GRADIENT_COLORS = [
-    "#e6e600", "#ccdb00", "#b3d600", "#99d100", "#80cc00",
-    "#66c700", "#4dc200", "#33bd00", "#1ab800", "#00b300",
-]
+_WELCOME_BOX = r"""
+╭──────────────────────────────────────────────────╮
+│          ⚡ Welcome to IQQIBOT!! ⚡              │
+╰──────────────────────────────────────────────────╯
+"""
+
+_DIVIDER = "━" * 54
+
+_THINKING_DOTS = ["   ", ".  ", ".. ", "..."]
+
+_BANNER_ANIM_DELAY = 0.04
 
 
-def _print_banner() -> None:
-    """Print the ASCII banner with a yellow-to-green gradient."""
-    lines = _BANNER.strip("\n").split("\n")
-    total = len(lines) or 1
-    for i, line in enumerate(lines):
-        color = _GRADIENT_COLORS[min(i * len(_GRADIENT_COLORS) // total, len(_GRADIENT_COLORS) - 1)]
-        console.print(f"[bold {color}]{line}[/bold {color}]")
+def _icon_with_label(
+    label: str,
+    *,
+    icon: str = __logo__,
+    fg: str = _GREEN_BOLT,
+    bg: str | None = None,
+) -> str:
+    """Render a compact icon followed by a styled label."""
+    if bg:
+        icon_markup = f"[bold {_BLACK} on {bg}] {icon} [/bold {_BLACK} on {bg}]"
+    else:
+        icon_markup = f"[bold {fg}]{icon}[/bold {fg}]"
+    return f"{icon_markup}  {label}"
+
+
+def _print_banner(animated: bool | None = None) -> None:
+    """Print welcome box + ASCII banner, animated."""
+    if animated is None:
+        try:
+            animated = sys.stdout.isatty()
+        except Exception:
+            animated = False
+
+    console.print()
+
+    welcome_lines = _WELCOME_BOX.strip("\n").split("\n")
+    for line in welcome_lines:
+        console.print(f"[bold {_GREEN_BOLT}]{line}[/bold {_GREEN_BOLT}]")
+        if animated:
+            time.sleep(_BANNER_ANIM_DELAY)
+
+    for line in _BANNER.strip("\n").split("\n"):
+        console.print(f"[bold {_GREEN_BOLT}]{line}[/bold {_GREEN_BOLT}]")
+        if animated:
+            time.sleep(_BANNER_ANIM_DELAY)
+
+    if animated:
+        time.sleep(0.06)
+
+    console.print(f"[bold {_GREEN_BOLT}]{_DIVIDER}[/bold {_GREEN_BOLT}]")
+    console.print(f"[dim {_GREEN_BOLT}]  v{__version__}[/dim {_GREEN_BOLT}]")
     console.print()
 
 
 def _styled(text: str) -> str:
-    """Return text wrapped in the iqqibot green style."""
-    return f"[bold green]{__logo__} {text}[/bold green]"
+    """Bot-side header: icon + branding."""
+    label = f"[bold {_GREEN_BOLT}]{__logo__} {__brand__}[/bold {_GREEN_BOLT}] [dim {_GREEN_BOLT}]• {text}[/dim {_GREEN_BOLT}]"
+    return _icon_with_label(label, fg=_GREEN_BOLT)
 
 # ---------------------------------------------------------------------------
 # CLI input: prompt_toolkit for editing, paste, history, and display
@@ -131,12 +183,21 @@ def _init_prompt_session() -> None:
 
 
 def _print_agent_response(response: str, render_markdown: bool) -> None:
-    """Render assistant response with consistent terminal styling."""
-    content = response or ""
-    body = Markdown(content) if render_markdown else Text(content)
+    """Render assistant response: first line to the right of iqqibot, rest below."""
+    content = (response or "").strip()
+    lines = content.split("\n") if content else []
+    first_line = lines[0] if lines else ""
+    rest_lines = lines[1:]
     console.print()
-    console.print(f"[bold green]{__logo__} {__brand__}[/bold green]")
-    console.print(body)
+    if first_line:
+        label = f"[bold {_GREEN_BOLT}]{__brand__}[/bold {_GREEN_BOLT}] [dim {_GREEN_BOLT}]{first_line}[/dim {_GREEN_BOLT}]"
+        console.print(_icon_with_label(label, fg=_GREEN_BOLT))
+    else:
+        console.print(_styled("online"))
+    if rest_lines:
+        rest_content = "\n".join(rest_lines)
+        rest_body = Markdown(rest_content) if render_markdown else Text(rest_content)
+        console.print(rest_body)
     console.print()
 
 
@@ -146,19 +207,14 @@ def _is_exit_command(command: str) -> bool:
 
 
 async def _read_interactive_input_async() -> str:
-    """Read user input using prompt_toolkit (handles paste, history, display).
-
-    prompt_toolkit natively handles:
-    - Multiline paste (bracketed paste mode)
-    - History navigation (up/down arrows)
-    - Clean display (no ghost characters or artifacts)
-    """
+    """Prompt on same line as 'You' so the typed message appears to the right of You."""
     if _PROMPT_SESSION is None:
         raise RuntimeError("Call _init_prompt_session() first")
+    console.print()
     try:
         with patch_stdout():
             return await _PROMPT_SESSION.prompt_async(
-                HTML("<b fg='ansiyellow'>You:</b> "),
+                HTML(f"<b fg='{_YELLOW_BOLT}'>⚡ You  ❯</b> "),
             )
     except EOFError as exc:
         raise KeyboardInterrupt from exc
@@ -168,7 +224,7 @@ async def _read_interactive_input_async() -> str:
 def version_callback(value: bool):
     if value:
         _print_banner()
-        console.print(f"  [bold green]v{__version__}[/bold green]")
+        console.print(f"  [bold {_GREEN_BOLT}]v{__version__}[/bold {_GREEN_BOLT}]")
         raise typer.Exit()
 
 
@@ -197,27 +253,27 @@ def onboard():
     config_path = get_config_path()
     
     if config_path.exists():
-        console.print(f"[yellow]Config already exists at {config_path}[/yellow]")
+        console.print(f"[bold {_GREEN_BOLT}]Config already exists at {config_path}[/bold {_GREEN_BOLT}]")
         console.print("  [bold]y[/bold] = overwrite with defaults (existing values will be lost)")
         console.print("  [bold]N[/bold] = refresh config, keeping existing values and adding new fields")
         if typer.confirm("Overwrite?"):
             config = Config()
             save_config(config)
-            console.print(f"[green]✓[/green] Config reset to defaults at {config_path}")
+            console.print(f"[bold {_GREEN_BOLT}]✓[/bold {_GREEN_BOLT}] Config reset to defaults at {config_path}")
         else:
             config = load_config()
             save_config(config)
-            console.print(f"[green]✓[/green] Config refreshed at {config_path} (existing values preserved)")
+            console.print(f"[bold {_GREEN_BOLT}]✓[/bold {_GREEN_BOLT}] Config refreshed at {config_path} (existing values preserved)")
     else:
         save_config(Config())
-        console.print(f"[green]✓[/green] Created config at {config_path}")
+        console.print(f"[bold {_GREEN_BOLT}]✓[/bold {_GREEN_BOLT}] Created config at {config_path}")
     
     # Create workspace
     workspace = get_workspace_path()
     
     if not workspace.exists():
         workspace.mkdir(parents=True, exist_ok=True)
-        console.print(f"[green]✓[/green] Created workspace at {workspace}")
+        console.print(f"[bold {_GREEN_BOLT}]✓[/bold {_GREEN_BOLT}] Created workspace at {workspace}")
     
     # Create default bootstrap files
     _create_workspace_templates(workspace)
@@ -225,9 +281,9 @@ def onboard():
     _print_banner()
     console.print(_styled("iqqibot is ready!"))
     console.print("\nNext steps:")
-    console.print("  1. Add your API key to [cyan]~/.nanobot/config.json[/cyan]")
+    console.print(f"  1. Add your API key to [bold {_GREEN_BOLT}]~/.nanobot/config.json[/bold {_GREEN_BOLT}]")
     console.print("     Get one at: https://openrouter.ai/keys")
-    console.print("  2. Chat: [cyan]nanobot agent -m \"Hello!\"[/cyan]")
+    console.print(f"  2. Chat: [bold {_GREEN_BOLT}]nanobot agent -m \"Hello!\"[/bold {_GREEN_BOLT}]")
     console.print("\n[dim]Want Telegram/WhatsApp? See: https://github.com/HKUDS/nanobot#-chat-apps[/dim]")
 
 
@@ -364,7 +420,6 @@ def _make_provider(config: Config):
         from nanobot.providers.smart_router import SmartRouter
         from nanobot.providers.router_metrics import RouterMetrics
         from nanobot.providers.artificial_analysis import fetch_models, fetch_top_agentic_models
-        from nanobot.providers.subagent_router import SubagentRouter
         metrics_path = config.workspace_path / ".nanobot" / "router_metrics.json"
         metrics = RouterMetrics(metrics_path)
         aa_base = (smart_router_cfg.api_base or "").strip() or "https://artificialanalysis.ai/api/v2"
@@ -377,7 +432,14 @@ def _make_provider(config: Config):
             use_cache=True,
             openrouter_api_key=openrouter_key or None,
         )
-        main_provider = SmartRouter(
+        subagent_capabilities = fetch_models(
+            aa_api_key,
+            aa_base,
+            use_cache=True,
+            openrouter_api_key=openrouter_key or None,
+        )
+        exclude_models = getattr(smart_router_cfg, "exclude_models", None) or getattr(routing, "exclude_models", None) or None
+        router = SmartRouter(
             inner,
             policy=getattr(routing, "policy", "balanced"),
             candidate_models=None,
@@ -386,22 +448,11 @@ def _make_provider(config: Config):
             metrics=metrics,
             default_model_hint=model,
             capabilities_from_api=capabilities_top_agentic if capabilities_top_agentic else None,
+            subagent_capabilities_from_api=subagent_capabilities if subagent_capabilities else None,
             max_cost_per_request_usd=float(getattr(smart_router_cfg, "max_cost_per_request_usd", 0) or 0),
+            exclude_models=exclude_models,
         )
-        # Subagent router: full AA list for task-aware cost-benefit selection
-        subagent_capabilities = fetch_models(
-            aa_api_key,
-            aa_base,
-            use_cache=True,
-            openrouter_api_key=openrouter_key or None,
-        )
-        subagent_provider = SubagentRouter(
-            inner,
-            capabilities=subagent_capabilities if subagent_capabilities else [],
-            default_model_hint=model,
-            judge_model=getattr(routing, "judge_model", "") or "",
-        )
-        return main_provider, subagent_provider
+        return router, router
 
     if routing.aliases or routing.fallback_models:
         return RoutingProvider(
@@ -471,8 +522,10 @@ def gateway(
         image_gen_api_key=config.providers.openrouter.api_key or None,
         image_gen_model=config.tools.image.model or None,
         subagent_provider=subagent_provider,
+        subagent_model=(config.agents.defaults.subagent_model or "").strip() or None,
+        leads_mx_token=config.tools.leads_mx.token or None,
     )
-    
+
     # Set cron callback (needs agent)
     async def on_cron_job(job: CronJob) -> str | None:
         """Execute a cron job through the agent."""
@@ -513,17 +566,17 @@ def gateway(
     channels = ChannelManager(config, bus)
     
     if channels.enabled_channels:
-        console.print(f"[green]✓[/green] Channels enabled: {', '.join(channels.enabled_channels)}")
+        console.print(f"[bold {_GREEN_BOLT}]✓[/bold {_GREEN_BOLT}] Channels enabled: {', '.join(channels.enabled_channels)}")
     else:
-        console.print("[yellow]Warning: No channels enabled[/yellow]")
+        console.print(f"[bold {_YELLOW_BOLT}]Warning: No channels enabled[/bold {_YELLOW_BOLT}]")
     
     cron_status = cron.status()
     if cron_status["jobs"] > 0:
-        console.print(f"[green]✓[/green] Cron: {cron_status['jobs']} scheduled jobs")
+        console.print(f"[bold {_GREEN_BOLT}]✓[/bold {_GREEN_BOLT}] Cron: {cron_status['jobs']} scheduled jobs")
     
     hb_min = hb_interval // 60
     hb_model_label = f" ({hb_model})" if hb_model else ""
-    console.print(f"[green]✓[/green] Heartbeat: every {hb_min}m{hb_model_label}")
+    console.print(f"[bold {_GREEN_BOLT}]✓[/bold {_GREEN_BOLT}] Heartbeat: every {hb_min}m{hb_model_label}")
     
     async def run():
         try:
@@ -601,18 +654,52 @@ def agent(
         image_gen_api_key=config.providers.openrouter.api_key or None,
         image_gen_model=config.tools.image.model or None,
         subagent_provider=subagent_provider,
+        subagent_model=(config.agents.defaults.subagent_model or "").strip() or None,
+        leads_mx_token=config.tools.leads_mx.token or None,
     )
 
-    # Show spinner when logs are off (no output to miss); skip when logs are on
+    # Animated thinking indicator (single line)
+    class _ThinkingIndicator:
+        """Context manager: compact icon + dots on one line."""
+        def __init__(self):
+            self._stop = threading.Event()
+            self._thread: threading.Thread | None = None
+
+        _NUM_LINES = 1
+
+        def __enter__(self):
+            self._stop.clear()
+            console.print()
+            self._thread = threading.Thread(target=self._animate, daemon=True)
+            self._thread.start()
+            return self
+
+        def __exit__(self, *_):
+            self._stop.set()
+            if self._thread:
+                self._thread.join(timeout=1.0)
+            sys.stdout.write(f"\033[{self._NUM_LINES}A\033[J")
+            sys.stdout.flush()
+
+        def _animate(self):
+            dot_idx = 0
+            while not self._stop.is_set():
+                dots = _THINKING_DOTS[dot_idx % len(_THINKING_DOTS)]
+                label = f"[bold {_GREEN_BOLT}]{__brand__}[/bold {_GREEN_BOLT}] [dim {_GREEN_BOLT}]is thinking{dots}[/dim {_GREEN_BOLT}]"
+                if dot_idx > 0:
+                    sys.stdout.write(f"\033[{self._NUM_LINES}A\033[J")
+                console.print(_icon_with_label(label, fg=_GREEN_BOLT))
+                dot_idx += 1
+                self._stop.wait(0.4)
+
     def _thinking_ctx():
         if logs:
             from contextlib import nullcontext
             return nullcontext()
-        # Animated spinner is safe to use with prompt_toolkit input handling
-        return console.status("[dim green]iqqibot is thinking...[/dim green]", spinner="dots")
+        return _ThinkingIndicator()
 
     async def _cli_progress(content: str) -> None:
-        console.print(f"  [dim green]↳ {content}[/dim green]")
+        console.print(f"  [dim {_GREEN_BOLT}]↳[/dim {_GREEN_BOLT}] [dim {_GREEN_BOLT}]{content}[/dim {_GREEN_BOLT}]")
 
     if message:
         # Single message mode — direct call, no bus needed
@@ -627,8 +714,9 @@ def agent(
         # Interactive mode — route through bus like other channels
         from nanobot.bus.events import InboundMessage
         _init_prompt_session()
-        _print_banner()
-        console.print(_styled("Interactive mode") + "  [dim](type [bold]exit[/bold] or [bold]Ctrl+C[/bold] to quit)[/dim]\n")
+        _print_banner(animated=True)
+        console.print(_styled("Interactive mode"))
+        console.print(f"[dim {_GREEN_BOLT}]  type exit or Ctrl+C to quit[/dim {_GREEN_BOLT}]\n")
 
         if ":" in session_id:
             cli_channel, cli_chat_id = session_id.split(":", 1)
@@ -637,7 +725,7 @@ def agent(
 
         def _exit_on_sigint(signum, frame):
             _restore_terminal()
-            console.print("\nGoodbye!")
+            console.print(f"\n[bold {_GREEN_BOLT}]Goodbye! ⚡[/bold {_GREEN_BOLT}]")
             os._exit(0)
 
         signal.signal(signal.SIGINT, _exit_on_sigint)
@@ -653,7 +741,7 @@ def agent(
                     try:
                         msg = await asyncio.wait_for(bus.consume_outbound(), timeout=1.0)
                         if msg.metadata.get("_progress"):
-                            console.print(f"  [dim green]↳ {msg.content}[/dim green]")
+                            console.print(f"  [dim {_GREEN_BOLT}]↳[/dim {_GREEN_BOLT}] [dim {_GREEN_BOLT}]{msg.content}[/dim {_GREEN_BOLT}]")
                         elif not turn_done.is_set():
                             if msg.content:
                                 turn_response.append(msg.content)
@@ -679,7 +767,7 @@ def agent(
 
                         if _is_exit_command(command):
                             _restore_terminal()
-                            console.print("\nGoodbye!")
+                            console.print(f"\n[bold {_GREEN_BOLT}]Goodbye! ⚡[/bold {_GREEN_BOLT}]")
                             break
 
                         turn_done.clear()
@@ -699,11 +787,11 @@ def agent(
                             _print_agent_response(turn_response[0], render_markdown=markdown)
                     except KeyboardInterrupt:
                         _restore_terminal()
-                        console.print("\nGoodbye!")
+                        console.print(f"\n[bold {_GREEN_BOLT}]Goodbye! ⚡[/bold {_GREEN_BOLT}]")
                         break
                     except EOFError:
                         _restore_terminal()
-                        console.print("\nGoodbye!")
+                        console.print(f"\n[bold {_GREEN_BOLT}]Goodbye! ⚡[/bold {_GREEN_BOLT}]")
                         break
             finally:
                 agent_loop.stop()
@@ -731,9 +819,9 @@ def channels_status():
     config = load_config()
 
     table = Table(title="Channel Status")
-    table.add_column("Channel", style="cyan")
-    table.add_column("Enabled", style="green")
-    table.add_column("Configuration", style="yellow")
+    table.add_column("Channel", style=_GREEN_BOLT)
+    table.add_column("Enabled", style=_GREEN_BOLT)
+    table.add_column("Configuration", style=_GREEN_BOLT)
 
     # WhatsApp
     wa = config.channels.whatsapp
@@ -864,7 +952,7 @@ def _get_bridge_dir() -> Path:
         console.print("  Building...")
         subprocess.run(["npm", "run", "build"], cwd=user_bridge, check=True, capture_output=True)
         
-        console.print("[green]✓[/green] Bridge ready\n")
+        console.print(f"[bold {_GREEN_BOLT}]✓[/bold {_GREEN_BOLT}] Bridge ready\n")
     except subprocess.CalledProcessError as e:
         console.print(f"[red]Build failed: {e}[/red]")
         if e.stderr:
@@ -924,7 +1012,7 @@ def cron_list(
         return
     
     table = Table(title="Scheduled Jobs")
-    table.add_column("ID", style="cyan")
+    table.add_column("ID", style=_GREEN_BOLT)
     table.add_column("Name")
     table.add_column("Schedule")
     table.add_column("Status")
@@ -952,7 +1040,7 @@ def cron_list(
             except Exception:
                 next_run = time.strftime("%Y-%m-%d %H:%M", time.localtime(ts))
         
-        status = "[green]enabled[/green]" if job.enabled else "[dim]disabled[/dim]"
+        status = f"[bold {_GREEN_BOLT}]enabled[/bold {_GREEN_BOLT}]" if job.enabled else "[dim]disabled[/dim]"
         
         table.add_row(job.id, job.name, sched, status, next_run)
     
@@ -1009,7 +1097,7 @@ def cron_add(
         console.print(f"[red]Error: {e}[/red]")
         raise typer.Exit(1) from e
 
-    console.print(f"[green]✓[/green] Added job '{job.name}' ({job.id})")
+    console.print(f"[bold {_GREEN_BOLT}]✓[/bold {_GREEN_BOLT}] Added job '{job.name}' ({job.id})")
 
 
 @cron_app.command("remove")
@@ -1024,7 +1112,7 @@ def cron_remove(
     service = CronService(store_path)
     
     if service.remove_job(job_id):
-        console.print(f"[green]✓[/green] Removed job {job_id}")
+        console.print(f"[bold {_GREEN_BOLT}]✓[/bold {_GREEN_BOLT}] Removed job {job_id}")
     else:
         console.print(f"[red]Job {job_id} not found[/red]")
 
@@ -1044,7 +1132,7 @@ def cron_enable(
     job = service.enable_job(job_id, enabled=not disable)
     if job:
         status = "disabled" if disable else "enabled"
-        console.print(f"[green]✓[/green] Job '{job.name}' {status}")
+        console.print(f"[bold {_GREEN_BOLT}]✓[/bold {_GREEN_BOLT}] Job '{job.name}' {status}")
     else:
         console.print(f"[red]Job {job_id} not found[/red]")
 
@@ -1086,6 +1174,8 @@ def cron_run(
         image_gen_api_key=config.providers.openrouter.api_key or None,
         image_gen_model=config.tools.image.model or None,
         subagent_provider=subagent_provider,
+        subagent_model=(config.agents.defaults.subagent_model or "").strip() or None,
+        leads_mx_token=config.tools.leads_mx.token or None,
     )
 
     store_path = get_data_dir() / "cron" / "jobs.json"
@@ -1109,7 +1199,7 @@ def cron_run(
         return await service.run_job(job_id, force=force)
 
     if asyncio.run(run()):
-        console.print("[green]✓[/green] Job executed")
+        console.print(f"[bold {_GREEN_BOLT}]✓[/bold {_GREEN_BOLT}] Job executed")
         if result_holder:
             _print_agent_response(result_holder[0], render_markdown=True)
     else:
@@ -1133,8 +1223,8 @@ def status():
     _print_banner()
     console.print(_styled("Status") + "\n")
 
-    console.print(f"Config: {config_path} {'[green]✓[/green]' if config_path.exists() else '[red]✗[/red]'}")
-    console.print(f"Workspace: {workspace} {'[green]✓[/green]' if workspace.exists() else '[red]✗[/red]'}")
+    console.print(f"Config: {config_path} {'[bold {_GREEN_BOLT}]✓[/bold {_GREEN_BOLT}]' if config_path.exists() else '[red]✗[/red]'}")
+    console.print(f"Workspace: {workspace} {'[bold {_GREEN_BOLT}]✓[/bold {_GREEN_BOLT}]' if workspace.exists() else '[red]✗[/red]'}")
 
     if config_path.exists():
         from nanobot.providers.registry import PROVIDERS
@@ -1147,16 +1237,16 @@ def status():
             if p is None:
                 continue
             if spec.is_oauth:
-                console.print(f"{spec.label}: [green]✓ (OAuth)[/green]")
+                console.print(f"{spec.label}: [bold {_GREEN_BOLT}]✓ (OAuth)[/bold {_GREEN_BOLT}]")
             elif spec.is_local:
                 # Local deployments show api_base instead of api_key
                 if p.api_base:
-                    console.print(f"{spec.label}: [green]✓ {p.api_base}[/green]")
+                    console.print(f"{spec.label}: [bold {_GREEN_BOLT}]✓ {p.api_base}[/bold {_GREEN_BOLT}]")
                 else:
                     console.print(f"{spec.label}: [dim]not set[/dim]")
             else:
                 has_key = bool(p.api_key)
-                console.print(f"{spec.label}: {'[green]✓[/green]' if has_key else '[dim]not set[/dim]'}")
+                console.print(f"{spec.label}: {'[bold {_GREEN_BOLT}]✓[/bold {_GREEN_BOLT}]' if has_key else '[dim]not set[/dim]'}")
 
 
 # ============================================================================
@@ -1210,7 +1300,7 @@ def _login_openai_codex() -> None:
         except Exception:
             pass
         if not (token and token.access):
-            console.print("[cyan]Starting interactive OAuth login...[/cyan]\n")
+            console.print(f"[bold {_GREEN_BOLT}]Starting interactive OAuth login...[/bold {_GREEN_BOLT}]\n")
             token = login_oauth_interactive(
                 print_fn=lambda s: console.print(s),
                 prompt_fn=lambda s: typer.prompt(s),
@@ -1218,7 +1308,7 @@ def _login_openai_codex() -> None:
         if not (token and token.access):
             console.print("[red]✗ Authentication failed[/red]")
             raise typer.Exit(1)
-        console.print(f"[green]✓ Authenticated with OpenAI Codex[/green]  [dim]{token.account_id}[/dim]")
+        console.print(f"[bold {_GREEN_BOLT}]✓ Authenticated with OpenAI Codex[/bold {_GREEN_BOLT}]  [dim]{token.account_id}[/dim]")
     except ImportError:
         console.print("[red]oauth_cli_kit not installed. Run: pip install oauth-cli-kit[/red]")
         raise typer.Exit(1)
@@ -1228,7 +1318,7 @@ def _login_openai_codex() -> None:
 def _login_github_copilot() -> None:
     import asyncio
 
-    console.print("[cyan]Starting GitHub Copilot device flow...[/cyan]\n")
+    console.print(f"[bold {_GREEN_BOLT}]Starting GitHub Copilot device flow...[/bold {_GREEN_BOLT}]\n")
 
     async def _trigger():
         from litellm import acompletion
@@ -1236,7 +1326,7 @@ def _login_github_copilot() -> None:
 
     try:
         asyncio.run(_trigger())
-        console.print("[green]✓ Authenticated with GitHub Copilot[/green]")
+        console.print(f"[bold {_GREEN_BOLT}]✓ Authenticated with GitHub Copilot[/bold {_GREEN_BOLT}]")
     except Exception as e:
         console.print(f"[red]Authentication error: {e}[/red]")
         raise typer.Exit(1)

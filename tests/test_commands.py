@@ -49,7 +49,7 @@ def test_onboard_fresh_install(mock_paths):
     assert result.exit_code == 0
     assert "Created config" in result.stdout
     assert "Created workspace" in result.stdout
-    assert "nanobot is ready" in result.stdout
+    assert "iqqibot is ready" in result.stdout
     assert config_file.exists()
     assert (workspace_dir / "AGENTS.md").exists()
     assert (workspace_dir / "memory" / "MEMORY.md").exists()
@@ -128,3 +128,18 @@ def test_litellm_provider_canonicalizes_github_copilot_hyphen_prefix():
 def test_openai_codex_strip_prefix_supports_hyphen_and_underscore():
     assert _strip_model_prefix("openai-codex/gpt-5.1-codex") == "gpt-5.1-codex"
     assert _strip_model_prefix("openai_codex/gpt-5.1-codex") == "gpt-5.1-codex"
+
+
+def test_agent_defaults_has_subagent_model_empty_by_default():
+    """subagent_model is optional; empty means subagents use main model (backward compatible)."""
+    from nanobot.config.schema import AgentDefaults
+    defaults = AgentDefaults()
+    assert hasattr(defaults, "subagent_model")
+    assert defaults.subagent_model == ""
+
+
+def test_agent_defaults_subagent_model_accepts_value():
+    """subagent_model can be set for dedicated subagent model when not using smart router."""
+    from nanobot.config.schema import AgentDefaults
+    defaults = AgentDefaults(subagent_model="openrouter/google/gemini-2.0-flash-001")
+    assert defaults.subagent_model == "openrouter/google/gemini-2.0-flash-001"

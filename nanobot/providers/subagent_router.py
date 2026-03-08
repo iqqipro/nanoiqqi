@@ -1,11 +1,14 @@
 """
 Subagent router: task-aware cost-benefit model selection for subagents.
 
-Uses Artificial Analysis data to choose an OpenRouter model that matches
-the required capability for the subagent task while minimizing cost.
+DEPRECATED: Subagent routing is now integrated into SmartRouter via the
+routing_profile="subagent" parameter. Use a single SmartRouter instance
+with subagent_capabilities_from_api and call chat(..., routing_profile="subagent")
+for subagent calls. This module is kept for backward compatibility only.
 """
-
 from __future__ import annotations
+
+import warnings
 
 import re
 from typing import Any
@@ -74,6 +77,11 @@ class SubagentRouter(LLMProvider):
         default_model_hint: str = "",
         judge_model: str = "",
     ):
+        warnings.warn(
+            "SubagentRouter is deprecated; use SmartRouter with routing_profile='subagent' instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         super().__init__(api_key=inner.api_key, api_base=inner.api_base)
         self._inner = inner
         self._capabilities = list(capabilities)

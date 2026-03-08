@@ -24,6 +24,7 @@ from nanobot.agent.tools.shell import ExecTool
 from nanobot.agent.tools.spawn import SpawnTool
 from nanobot.agent.tools.web import WebFetchTool, WebSearchTool
 from nanobot.agent.tools.image_gen import GenerateImageTool
+from nanobot.agent.tools.leads_mx import LeadsMx
 from nanobot.bus.events import InboundMessage, OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.providers.base import LLMProvider
@@ -71,6 +72,8 @@ class AgentLoop:
         image_gen_api_key: str | None = None,
         image_gen_model: str | None = None,
         subagent_provider: LLMProvider | None = None,
+        subagent_model: str | None = None,
+        leads_mx_token: str | None = None,
     ):
         from nanobot.config.schema import ExecToolConfig
         self.bus = bus
@@ -88,16 +91,21 @@ class AgentLoop:
         self.restrict_to_workspace = restrict_to_workspace
         self._image_gen_api_key = image_gen_api_key
         self._image_gen_model = image_gen_model
+        self._leads_mx_token = (leads_mx_token or "").strip() or None
 
-        self.context = ContextBuilder(workspace)
+        self.context = ContextBuilder(
+            workspace,
+            get_enabled_tool_names=lambda: set(self.tools.tool_names),
+        )
         self.sessions = session_manager or SessionManager(workspace)
         self.tools = ToolRegistry()
         self.safeguard = CompactionSafeguard(provider, summarizer_model="google/gemini-2.5-flash")
+        subagent_model_resolved = (subagent_model or "").strip() or self.model
         self.subagents = SubagentManager(
             provider=subagent_provider or provider,
             workspace=workspace,
             bus=bus,
-            model=self.model,
+            model=subagent_model_resolved,
             temperature=self.temperature,
             max_tokens=self.max_tokens,
             brave_api_key=brave_api_key,
@@ -137,6 +145,8 @@ class AgentLoop:
         self.tools.register(DumpSessionTool(session_manager=self.sessions, workspace=self.workspace))
         if self.cron_service:
             self.tools.register(CronTool(self.cron_service))
+        if self._leads_mx_token:
+            self.tools.register(LeadsMx(token=self._leads_mx_token))
 
     async def _connect_mcp(self) -> None:
         """Connect to configured MCP servers (one-time, lazy)."""
@@ -186,6 +196,59 @@ class AgentLoop:
         return re.sub(r"<think>[\s\S]*?</think>", "", text).strip() or None
 
     @staticmethod
+    def _extract_media_from_content(content: str | None, workspace: Path) -> tuple[str, list[str]]:
+        """
+        Extract local file paths from markdown image syntax in content and return
+        (sanitized_content, media_paths). Only paths under workspace or ~/.nanobot
+        that exist and are files are included. Sanitized content has those
+        markdown image segments removed so the user does not see raw paths.
+        """
+        if not content or not content.strip():
+            return (content or "", [])
+        allowed_roots = [
+            workspace.resolve(),
+            (Path.home() / ".nanobot").resolve(),
+        ]
+        # Match ![alt](path) or ![](path)
+        pattern = re.compile(r"!\[[^\]]*\]\s*\(\s*([^)]+)\s*\)")
+        media_paths: list[str] = []
+        seen: set[str] = set()
+
+        def repl(match: re.Match[str]) -> str:
+            raw = match.group(1).strip()
+            if not raw or raw.startswith("http://") or raw.startswith("https://"):
+                return match.group(0)
+            try:
+                p = Path(raw).expanduser()
+                if not p.is_absolute():
+                    p = (workspace / raw).resolve()
+                else:
+                    p = p.resolve()
+                if not p.is_file():
+                    return match.group(0)
+                try:
+                    in_allowed = any(
+                        p == root or str(p).startswith(str(root) + "/")
+                        for root in allowed_roots
+                    )
+                except ValueError:
+                    in_allowed = False
+                if in_allowed:
+                    path_str = str(p)
+                    if path_str not in seen:
+                        seen.add(path_str)
+                        media_paths.append(path_str)
+                    return ""
+            except (OSError, RuntimeError):
+                pass
+            return match.group(0)
+
+        sanitized = pattern.sub(repl, content)
+        # Collapse multiple newlines/spaces left after stripping image markdown
+        sanitized = re.sub(r"\n{3,}", "\n\n", sanitized).strip()
+        return (sanitized, media_paths)
+
+    @staticmethod
     def _tool_hint(tool_calls: list) -> str:
         """Format tool calls as concise hint, e.g. 'web_search("query")'."""
         def _fmt(tc):
@@ -213,12 +276,17 @@ class AgentLoop:
         while iteration < self.max_iterations:
             iteration += 1
 
+            force_model = (
+                self._tool_calling_model is not None
+                and effective_model == self._tool_calling_model
+            )
             response = await self.provider.chat(
                 messages=messages,
                 tools=self.tools.get_definitions(),
                 model=effective_model,
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,
+                force_model=force_model,
             )
 
             if response.has_tool_calls:
@@ -330,8 +398,13 @@ class AgentLoop:
             session.add_message("user", f"[System: {msg.sender_id}] {msg.content}")
             session.add_message("assistant", final_content or "Background task completed.")
             self.sessions.save(session)
-            return OutboundMessage(channel=channel, chat_id=chat_id,
-                                  content=final_content or "Background task completed.")
+            content_out, media_paths = self._extract_media_from_content(final_content, self.workspace)
+            return OutboundMessage(
+                channel=channel,
+                chat_id=chat_id,
+                content=content_out or "Background task completed.",
+                media=media_paths,
+            )
 
         preview = msg.content[:80] + "..." if len(msg.content) > 80 else msg.content
         logger.info("Processing message from {}:{}: {}", msg.channel, msg.sender_id, preview)
@@ -417,8 +490,12 @@ class AgentLoop:
             if isinstance(message_tool, MessageTool) and message_tool._sent_in_turn:
                 return None
 
+        content_out, media_paths = self._extract_media_from_content(final_content, self.workspace)
         return OutboundMessage(
-            channel=msg.channel, chat_id=msg.chat_id, content=final_content,
+            channel=msg.channel,
+            chat_id=msg.chat_id,
+            content=content_out,
+            media=media_paths,
             metadata=msg.metadata or {},
         )
 

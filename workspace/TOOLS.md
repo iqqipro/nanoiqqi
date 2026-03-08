@@ -63,6 +63,35 @@ web_fetch(url: str, extractMode: str = "markdown", maxChars: int = 50000) -> str
 - Supports markdown or plain text extraction
 - Output is truncated at 50,000 characters by default
 
+## Leads (México – DENUE)
+
+### LeadsMx
+Busca establecimientos en México con la API DENUE (INEGI). **Siempre hay que enviar el parámetro `method`.** No enviar cadenas vacías en entidad/municipio: usar `"00"` (todo el país) o `"0"` (omitir) o la clave correcta. **entidad** acepta clave de 2 dígitos **o** nombre/alias de estado (ej. Jalisco, CDMX); **estrato** acepta 0–7 **o** expresiones como "micro", "grande", "pyme"; la tool traduce.
+
+```
+LeadsMx(method, ...) -> str
+```
+
+**Reglas:** (1) Siempre incluir `method`. (2) Nunca enviar `entidad=""` ni `municipio=""`: usar `"00"` o `"0"` o la clave (ej. entidad=15 Estado de México, municipio=107 Toluca). (3) Para "buscar en [ciudad]" usar `method=buscarEntidad` con `condicion` y `entidad` (ver skill leads_mx para claves).
+
+| Método | Parámetros típicos |
+|--------|--------------------|
+| **buscar** | condicion (oblig.), coordenadas?, distancia? (máx 5000 m) |
+| **ficha** | id (oblig.) |
+| **nombre** | nombre (oblig.), entidad?, registro_inicial?, registro_final? |
+| **buscarEntidad** | condicion, entidad (ej. 15), registro_inicial?, registro_final? |
+| **buscarAreaAct** | entidad, municipio?, sector?, …, nombre?, registro_inicial?, registro_final? |
+| **buscarAreaActEstr** | igual + estrato? (0–7) |
+| **cuantificar** | actividad?, area_geografica?, estrato? ("0" = no filtrar) |
+
+**Ejemplos:** Buscar en Toluca → `method=buscarEntidad`, `condicion=toluca` (o tipo de negocio), `entidad=15`, `registro_inicial=1`, `registro_final=50`. Listar por municipio Toluca → `method=buscarAreaActEstr`, `entidad=15`, `municipio=107`, `nombre=0` o palabra, `registro_inicial=1`, `registro_final=50`.
+
+- **entidad:** 2 dígitos o nombre/alias de estado (Jalisco, CDMX, etc.); "00" = todo el país.
+- **estrato:** 0–7 o expresiones ("micro", "grande", "pyme"); la tool traduce.
+- **Paginación:** registro_inicial, registro_final (ej. 1 y 50).
+
+Requiere `tools.leads_mx.token` en config (https://www.inegi.org.mx/app/api/denue/).
+
 ## Image Generation
 
 ### generate_image

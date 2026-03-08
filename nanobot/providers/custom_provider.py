@@ -17,8 +17,15 @@ class CustomProvider(LLMProvider):
         self.default_model = default_model
         self._client = AsyncOpenAI(api_key=api_key, base_url=api_base)
 
-    async def chat(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None,
-                   model: str | None = None, max_tokens: int = 4096, temperature: float = 0.7) -> LLMResponse:
+    async def chat(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+        model: str | None = None,
+        max_tokens: int = 4096,
+        temperature: float = 0.7,
+        **kwargs: Any,
+    ) -> LLMResponse:
         kwargs: dict[str, Any] = {"model": model or self.default_model, "messages": messages,
                                   "max_tokens": max(1, max_tokens), "temperature": temperature}
         if tools:

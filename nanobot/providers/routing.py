@@ -46,6 +46,7 @@ class RoutingProvider(LLMProvider):
         model: str | None = None,
         max_tokens: int = 4096,
         temperature: float = 0.7,
+        **kwargs: Any,
     ) -> LLMResponse:
         resolved = self.resolve_alias(model) if model else model
         primary = resolved or self._inner.get_default_model()

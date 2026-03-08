@@ -14,7 +14,7 @@ from oauth_cli_kit import get_token as get_codex_token
 from nanobot.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 
 DEFAULT_CODEX_URL = "https://chatgpt.com/backend-api/codex/responses"
-DEFAULT_ORIGINATOR = "nanobot"
+DEFAULT_ORIGINATOR = "iqqibot"
 
 
 class OpenAICodexProvider(LLMProvider):
@@ -31,6 +31,7 @@ class OpenAICodexProvider(LLMProvider):
         model: str | None = None,
         max_tokens: int = 4096,
         temperature: float = 0.7,
+        **kwargs: Any,
     ) -> LLMResponse:
         model = model or self.default_model
         system_prompt, input_items = _convert_messages(messages)
@@ -91,7 +92,7 @@ def _build_headers(account_id: str, token: str) -> dict[str, str]:
         "chatgpt-account-id": account_id,
         "OpenAI-Beta": "responses=experimental",
         "originator": DEFAULT_ORIGINATOR,
-        "User-Agent": "nanobot (python)",
+        "User-Agent": "iqqibot (python)",
         "accept": "text/event-stream",
         "content-type": "application/json",
     }

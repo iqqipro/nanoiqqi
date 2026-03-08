@@ -4,7 +4,7 @@ import base64
 import mimetypes
 import platform
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from nanobot.agent.memory import MemoryStore
 from nanobot.agent.skills import SkillsLoader
@@ -13,53 +13,60 @@ from nanobot.agent.skills import SkillsLoader
 class ContextBuilder:
     """
     Builds the context (system prompt + messages) for the agent.
-    
+
     Assembles bootstrap files, memory, skills, and conversation history
     into a coherent prompt for the LLM.
     """
-    
+
     BOOTSTRAP_FILES = ["AGENTS.md", "SOUL.md", "USER.md", "TOOLS.md", "IDENTITY.md"]
-    
-    def __init__(self, workspace: Path):
+
+    def __init__(
+        self,
+        workspace: Path,
+        get_enabled_tool_names: Callable[[], set[str]] | None = None,
+    ):
         self.workspace = workspace
         self.memory = MemoryStore(workspace)
         self.skills = SkillsLoader(workspace)
-    
+        self.get_enabled_tool_names = get_enabled_tool_names
+
     def build_system_prompt(self, skill_names: list[str] | None = None) -> str:
         """
         Build the system prompt from bootstrap files, memory, and skills.
-        
+
         Args:
             skill_names: Optional list of skills to include.
-        
+
         Returns:
             Complete system prompt.
         """
         parts = []
-        
+
         # Core identity
         parts.append(self._get_identity())
-        
+
         # Bootstrap files
         bootstrap = self._load_bootstrap_files()
         if bootstrap:
             parts.append(bootstrap)
-        
+
         # Memory context
         memory = self.memory.get_memory_context()
         if memory:
             parts.append(f"# Memory\n\n{memory}")
-        
+
+        enabled_tool_names = self.get_enabled_tool_names() if self.get_enabled_tool_names else None
+
         # Skills - progressive loading
-        # 1. Always-loaded skills: include full content
-        always_skills = self.skills.get_always_skills()
+        # 1. Always-loaded skills: include full content (only those whose requirements are met, e.g. tool LeadsMx)
+        always_skills = self.skills.get_always_skills(enabled_tool_names=enabled_tool_names)
         if always_skills:
             always_content = self.skills.load_skills_for_context(always_skills)
             if always_content:
                 parts.append(f"# Active Skills\n\n{always_content}")
-        
+
         # 2. Available skills: only show summary (agent uses read_file to load)
-        skills_summary = self.skills.build_skills_summary()
+        skills_summary = self.skills.build_skills_summary(enabled_tool_names=enabled_tool_names)
         if skills_summary:
             parts.append(f"""# Skills
 
@@ -80,9 +87,9 @@ Skills with available="false" need dependencies installed first - you can try in
         system = platform.system()
         runtime = f"{'macOS' if system == 'Darwin' else system} {platform.machine()}, Python {platform.python_version()}"
         
-        return f"""# nanobot 🐈
+        return f"""# iqqibot 
 
-You are nanobot, a helpful AI assistant. 
+You are iqqibot, a helpful AI assistant. 
 
 ## Current Time
 {now} ({tz})
@@ -99,6 +106,7 @@ Your workspace is at: {workspace_path}
 IMPORTANT: When responding to direct questions or conversations, reply directly with your text response.
 Only use the 'message' tool when you need to send a message to a specific chat channel (like WhatsApp).
 For normal conversation, just respond with text - do not call the message tool.
+Exception: when you have file paths to show the user (e.g. from generate_image or other tools that return saved file paths), you MUST use the message tool with the media parameter so the channel can send the file. Do not embed local file paths in markdown in your text—chat channels cannot display them; the user will not see the image.
 
 Always be helpful, accurate, and concise. Before calling tools, briefly tell the user what you're about to do (one short sentence in the user's language).
 If you need to use tools, call them directly — never send a preliminary message like "Let me check" without actually calling a tool.

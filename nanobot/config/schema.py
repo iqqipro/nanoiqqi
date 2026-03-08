@@ -186,6 +186,10 @@ class AgentDefaults(Base):
     workspace: str = "~/.nanobot/workspace"
     model: str = "anthropic/claude-opus-4-5"
     tool_calling_model: str = Field(default="", description="If set, use this model for agent turns (e.g. minimax) to reduce tool-calling hallucinations; overrides smart router for the main loop")
+    subagent_model: str = Field(
+        default="",
+        description="Model used for subagent tasks when not using smart router. If empty, subagents use the same model as the main agent.",
+    )
     max_tokens: int = 8192
     temperature: float = 0.7
     max_tool_iterations: int = 20
@@ -284,6 +288,12 @@ class ImageGenConfig(Base):
     model: str = "black-forest-labs/flux-2-pro"  # OpenRouter image model id (without openrouter/ prefix)
 
 
+class LeadsMxConfig(Base):
+    """LeadsMx tool: búsqueda de establecimientos en México (API DENUE INEGI). Solo activo si token está configurado."""
+
+    token: str = Field(default="", description="Token de API DENUE (INEGI). Obtener en https://www.inegi.org.mx/app/api/denue/")
+
+
 class SmartRouterConfig(Base):
     """Smart routing tool: uses Artificial Analysis API for model data. Only active when api_key is set."""
 
@@ -291,6 +301,10 @@ class SmartRouterConfig(Base):
     api_base: str = Field(default="https://artificialanalysis.ai/api/v2", description="Artificial Analysis API base URL")
     max_cost_per_request_usd: float = Field(default=0, description="Cap: exclude models whose estimated cost for the request exceeds this (0 = no cap)")
     top_agentic_n: int = Field(default=15, description="Use only top N models by AA Agentic Index (main router); 0 = use all AA models")
+    exclude_models: list[str] = Field(
+        default_factory=list,
+        description="Model IDs to never use (e.g. perplexity/sonar-reasoning-pro). Normalized to lowercase for matching.",
+    )
 
 
 class MCPServerConfig(Base):
@@ -310,6 +324,7 @@ class ToolsConfig(Base):
     exec: ExecToolConfig = Field(default_factory=ExecToolConfig)
     image: ImageGenConfig = Field(default_factory=ImageGenConfig)
     smart_router: SmartRouterConfig = Field(default_factory=SmartRouterConfig)
+    leads_mx: LeadsMxConfig = Field(default_factory=LeadsMxConfig)
     restrict_to_workspace: bool = False  # If true, restrict all tool access to workspace directory
     mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
 

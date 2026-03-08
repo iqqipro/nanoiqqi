@@ -8,14 +8,17 @@ from __future__ import annotations
 import json
 import re
 import time
-from typing import Any
+from typing import Any, Literal
 
 from loguru import logger
 
 from nanobot.providers.base import LLMProvider, LLMResponse
 from nanobot.providers.model_capabilities import (
     ModelCapability,
+    agentic_score_from_evaluations,
+    domain_quality_score,
     estimated_cost_usd,
+    filter_capabilities_list,
     get_capability,
     get_eligible_model_ids,
     get_eligible_from_capabilities,
@@ -27,6 +30,62 @@ from nanobot.providers.router_metrics import RouterMetrics, DEFAULT_LATENCY_MS
 # Judge result: complexity (simple|medium|complex), domain (code|general|math|agentic|unknown)
 JUDGE_COMPLEXITY_TO_BONUS = {"simple": 0.0, "medium": 0.2, "complex": 0.4}
 JUDGE_DOMAINS = frozenset({"code", "general", "math", "agentic", "unknown"})
+
+# Subagent profile: map judge complexity to minimum agentic capability (0–1)
+JUDGE_COMPLEXITY_TO_MIN_CAP = {"simple": 0.2, "medium": 0.45, "complex": 0.7}
+
+
+def _infer_task_complexity(task_text: str) -> float:
+    """
+    Infer required capability level from task description (0.0 = simple, 1.0 = complex).
+    Used in subagent profile to avoid overpaying for simple tasks.
+    """
+    if not task_text or not isinstance(task_text, str):
+        return 0.3
+    text = task_text.strip().lower()
+    if not text:
+        return 0.3
+    length_factor = min(1.0, len(text) / 800.0) * 0.4
+    complex_keywords = (
+        r"\b(implement|refactor|rewrite|design|architecture|debug|fix\s+the\s+bug|"
+        r"analyze|review|migrate|integrate|optimize|algorithm|recursive|concurrent|"
+        r"write\s+tests|unit\s+test|e2e|parsing|api\s+design)\b"
+    )
+    medium_keywords = (
+        r"\b(create|add|update|fix|change|improve|document|explain|summarize|"
+        r"list|find|search|fetch|format|convert)\b"
+    )
+    if re.search(complex_keywords, text):
+        keyword_factor = 0.5
+    elif re.search(medium_keywords, text):
+        keyword_factor = 0.25
+    else:
+        keyword_factor = 0.1
+    return min(1.0, 0.2 + length_factor + keyword_factor)
+
+
+def _normalize_model_id(model_id: str) -> str:
+    """Normalize model ID for matching: lowercase, optional 'openrouter/' prefix stripped."""
+    s = (model_id or "").strip().lower()
+    if s.startswith("openrouter/"):
+        s = s[10:].strip()
+    return s
+
+
+def _normalized_exclude_set(exclude_models: list[str]) -> set[str]:
+    """Build set of normalized model IDs to exclude (lowercase, without openrouter/ prefix)."""
+    return {_normalize_model_id(e) for e in (exclude_models or []) if (e or "").strip()}
+
+
+def _first_user_content_key(messages: list[dict[str, Any]], max_len: int = 1000) -> str:
+    """Build a cache key from the first user message content (same turn reuses judge)."""
+    for m in messages:
+        if m.get("role") == "user":
+            content = m.get("content", "")
+            if isinstance(content, str):
+                return content[:max_len]
+            break
+    return ""
 
 
 def parse_judge_response(text: str) -> dict[str, str]:
@@ -258,12 +317,22 @@ async def run_judge(
 
 class SmartRouter(LLMProvider):
     """
-    Five-stage routing pipeline around an inner LLM provider:
+    Single router with two profiles (main / subagent), shared pipeline pieces.
+
+    Call chat(..., routing_profile="main") for the main agent (default);
+    call chat(..., routing_profile="subagent") for subagent tasks.
+
+    Main profile (routing_profile="main"):
     1. Hard gates: filter by tool_calling, vision, context_length.
     2. Optional local judge: classify request for fit bonus.
     3. Score + select: policy weights, pick primary and provider-diverse fallbacks.
     4. Execute: call inner with primary; on error try fallbacks.
     5. Outcome learning: record success and latency to RouterMetrics.
+
+    Subagent profile (routing_profile="subagent"):
+    Reuses request_requirements, optional judge, and capabilities; cost-oriented
+    policy (min agentic capability, then cheapest by domain quality). Single model
+    selection, no fallback chain, no metrics recording.
     """
 
     def __init__(
@@ -276,7 +345,9 @@ class SmartRouter(LLMProvider):
         metrics: RouterMetrics | None = None,
         default_model_hint: str = "",
         capabilities_from_api: list[ModelCapability] | None = None,
+        subagent_capabilities_from_api: list[ModelCapability] | None = None,
         max_cost_per_request_usd: float = 0,
+        exclude_models: list[str] | None = None,
     ):
         super().__init__(api_key=inner.api_key, api_base=inner.api_base)
         self._inner = inner
@@ -286,11 +357,17 @@ class SmartRouter(LLMProvider):
         self._weights_override = weights_override or {}
         self._metrics = metrics or RouterMetrics(None)
         self._default_model_hint = (default_model_hint or "").strip() or inner.get_default_model()
-        # When set, use this list (e.g. from Artificial Analysis) instead of static OPENROUTER_CAPABILITIES
+        # Main profile: top-N by agentic index (e.g. from AA)
         self._capabilities_from_api = list(capabilities_from_api) if capabilities_from_api else None
+        # Subagent profile: full list for cost-aware selection (optional; falls back to main list if unset)
+        self._subagent_capabilities_from_api: list[ModelCapability] | None = (
+            list(subagent_capabilities_from_api) if subagent_capabilities_from_api else None
+        )
         self._max_cost_per_request_usd = max_cost_per_request_usd if max_cost_per_request_usd and max_cost_per_request_usd > 0 else 0.0
-        # Models that returned 400 "not a valid model ID" from OpenRouter; skip them in future selection
+        self._exclude_models_normalized: set[str] = _normalized_exclude_set(exclude_models or [])
         self._invalid_model_ids: set[str] = set()
+        self._judge_cache_key: str | None = None
+        self._judge_cache_result: dict[str, str] | None = None
 
     def get_default_model(self) -> str:
         return self._default_model_hint
@@ -302,7 +379,20 @@ class SmartRouter(LLMProvider):
         model: str | None = None,
         max_tokens: int = 4096,
         temperature: float = 0.7,
+        **kwargs: Any,
     ) -> LLMResponse:
+        routing_profile: Literal["main", "subagent"] = kwargs.pop("routing_profile", "main")
+        force_model: bool = kwargs.pop("force_model", False)
+        if routing_profile == "subagent":
+            return await self._chat_subagent(messages, tools, model, max_tokens, temperature)
+        if force_model:
+            chosen = (model or self._default_model_hint or "").strip()
+            if chosen:
+                return await self._execute_with_model(
+                    chosen, messages, tools, max_tokens, temperature,
+                )
+
+        # --- Main profile: five-stage pipeline ---
         # 1. Request requirements + hard gates + token estimates for cost
         req = request_requirements(messages, tools, max_tokens=max_tokens)
         if self._capabilities_from_api:
@@ -345,6 +435,11 @@ class SmartRouter(LLMProvider):
             eligible_ids = [m for m in eligible_ids if m.lower() not in self._invalid_model_ids]
             if cap_by_id:
                 cap_by_id = {k: v for k, v in cap_by_id.items() if k.lower() not in self._invalid_model_ids}
+        # Exclude config-defined models (normalized: lowercase, with or without "openrouter/" prefix)
+        if self._exclude_models_normalized:
+            eligible_ids = [m for m in eligible_ids if _normalize_model_id(m) not in self._exclude_models_normalized]
+            if cap_by_id:
+                cap_by_id = {k: v for k, v in cap_by_id.items() if _normalize_model_id(k) not in self._exclude_models_normalized}
         if not eligible_ids:
             # No eligible model from list: fall back to default behavior (no smart routing)
             logger.warning("Smart router: no eligible models after hard gates, using default")
@@ -357,9 +452,16 @@ class SmartRouter(LLMProvider):
             )
 
         # 2. Optional judge: complexity + domain (code|general|math|agentic)
+        # Cache by first user message so we run judge once per user turn, not per chat() call (saves tokens)
         judge_result = {"complexity": "medium", "domain": "general"}
         if self._judge_model:
-            judge_result = await run_judge(self._inner, messages, self._judge_model)
+            key = _first_user_content_key(messages)
+            if key and key == self._judge_cache_key and self._judge_cache_result is not None:
+                judge_result = self._judge_cache_result
+            else:
+                judge_result = await run_judge(self._inner, messages, self._judge_model)
+                self._judge_cache_key = key
+                self._judge_cache_result = judge_result
         fit_bonus = JUDGE_COMPLEXITY_TO_BONUS.get(judge_result["complexity"], 0.2)
         domain = judge_result.get("domain") or "general"
 
@@ -450,3 +552,116 @@ class SmartRouter(LLMProvider):
         latency_ms = (time.perf_counter() - t0) * 1000
         self._metrics.record_outcome(chosen, resp.finish_reason != "error", latency_ms)
         return resp
+
+    async def _chat_subagent(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None,
+        model: str | None,
+        max_tokens: int,
+        temperature: float,
+    ) -> LLMResponse:
+        """
+        Subagent profile: cost-oriented selection with minimum agentic capability.
+        Reuses request_requirements, optional judge, and capabilities; no fallback chain or metrics.
+        """
+        caps = self._subagent_capabilities_from_api or self._capabilities_from_api
+        if not caps:
+            fallback = model or self._default_model_hint
+            logger.debug("Smart router (subagent): no capabilities list; using {}", fallback)
+            return await self._inner.chat(
+                messages=messages,
+                tools=tools,
+                model=fallback,
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+
+        req = request_requirements(messages, tools, max_tokens=max_tokens)
+        in_tok = req.get("input_tokens_estimate", 0) or 0
+        out_tok = req.get("output_tokens_estimate", 1024) or 1024
+
+        task_text = ""
+        for m in messages:
+            if m.get("role") == "user":
+                content = m.get("content", "")
+                if isinstance(content, str):
+                    task_text = content
+                break
+
+        domain = "general"
+        min_capability = 0.45
+        if self._judge_model and task_text:
+            judge_result = await run_judge(
+                self._inner,
+                [{"role": "user", "content": task_text[:1500]}],
+                self._judge_model,
+            )
+            domain = judge_result.get("domain") or "general"
+            complexity_label = judge_result.get("complexity") or "medium"
+            min_capability = JUDGE_COMPLEXITY_TO_MIN_CAP.get(
+                complexity_label,
+                0.2 + 0.5 * _infer_task_complexity(task_text),
+            )
+            logger.debug("Smart router (subagent) judge: complexity={}, domain={}", complexity_label, domain)
+        else:
+            min_capability = 0.2 + 0.5 * _infer_task_complexity(task_text)
+
+        eligible = filter_capabilities_list(
+            caps,
+            tools_required=req["tools_required"],
+            vision_required=req["vision_required"],
+            min_context=req["min_context"],
+        )
+        # Exclude config and invalid models
+        eligible = [
+            c for c in eligible
+            if _normalize_model_id(c.normalized_id()) not in self._exclude_models_normalized
+            and c.normalized_id().lower() not in self._invalid_model_ids
+        ]
+
+        capable: list[tuple[ModelCapability, float, float, float]] = []
+        for cap in eligible:
+            score = agentic_score_from_evaluations(cap.evaluations)
+            if score is None:
+                score = 0.5
+            if score < min_capability:
+                continue
+            cost = estimated_cost_usd(cap, in_tok, out_tok)
+            cost_val = cost if cost is not None else 1.0
+            domain_q = domain_quality_score(cap, domain)
+            capable.append((cap, score, cost_val, domain_q))
+
+        if not capable:
+            fallback = model or self._default_model_hint
+            logger.debug(
+                "Smart router (subagent): no model with capability >= {}; using {}",
+                min_capability,
+                fallback,
+            )
+            return await self._inner.chat(
+                messages=messages,
+                tools=tools,
+                model=fallback,
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+
+        capable.sort(key=lambda x: (x[2], -x[3]))
+        chosen_cap = capable[0][0]
+        chosen_id = chosen_cap.normalized_id()
+        logger.debug(
+            "Smart router (subagent): min_cap {:.2f}, domain {}, chosen {} (cost ~{:.4f}, domain_q ~{:.2f})",
+            min_capability,
+            domain,
+            chosen_id,
+            capable[0][2],
+            capable[0][3],
+        )
+        return await self._inner.chat(
+            messages=messages,
+            tools=tools,
+            model=chosen_id,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )

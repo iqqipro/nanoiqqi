@@ -23,18 +23,23 @@ class SkillsLoader:
         self.workspace_skills = workspace / "skills"
         self.builtin_skills = builtin_skills_dir or BUILTIN_SKILLS_DIR
     
-    def list_skills(self, filter_unavailable: bool = True) -> list[dict[str, str]]:
+    def list_skills(
+        self,
+        filter_unavailable: bool = True,
+        enabled_tool_names: set[str] | None = None,
+    ) -> list[dict[str, str]]:
         """
         List all available skills.
-        
+
         Args:
             filter_unavailable: If True, filter out skills with unmet requirements.
-        
+            enabled_tool_names: If set, skills with requires.tools are only available when
+                all listed tools are in this set (e.g. LeadsMx skill only when LeadsMx tool is registered).
         Returns:
             List of skill info dicts with 'name', 'path', 'source'.
         """
         skills = []
-        
+
         # Workspace skills (highest priority)
         if self.workspace_skills.exists():
             for skill_dir in self.workspace_skills.iterdir():
@@ -42,7 +47,7 @@ class SkillsLoader:
                     skill_file = skill_dir / "SKILL.md"
                     if skill_file.exists():
                         skills.append({"name": skill_dir.name, "path": str(skill_file), "source": "workspace"})
-        
+
         # Built-in skills
         if self.builtin_skills and self.builtin_skills.exists():
             for skill_dir in self.builtin_skills.iterdir():
@@ -50,10 +55,14 @@ class SkillsLoader:
                     skill_file = skill_dir / "SKILL.md"
                     if skill_file.exists() and not any(s["name"] == skill_dir.name for s in skills):
                         skills.append({"name": skill_dir.name, "path": str(skill_file), "source": "builtin"})
-        
-        # Filter by requirements
+
+        # Filter by requirements (bins, env, and optionally tools)
         if filter_unavailable:
-            return [s for s in skills if self._check_requirements(self._get_skill_meta(s["name"]))]
+            return [
+                s
+                for s in skills
+                if self._check_requirements(self._get_skill_meta(s["name"]), enabled_tool_names=enabled_tool_names)
+            ]
         return skills
     
     def load_skill(self, name: str) -> str | None:
@@ -98,15 +107,13 @@ class SkillsLoader:
         
         return "\n\n---\n\n".join(parts) if parts else ""
     
-    def build_skills_summary(self) -> str:
+    def build_skills_summary(self, enabled_tool_names: set[str] | None = None) -> str:
         """
         Build a summary of all skills (name, description, path, availability).
-        
+
         This is used for progressive loading - the agent can read the full
         skill content using read_file when needed.
-        
-        Returns:
-            XML-formatted skills summary.
+        Skills that require tools not in enabled_tool_names are marked available="false".
         """
         all_skills = self.list_skills(filter_unavailable=False)
         if not all_skills:
@@ -121,7 +128,7 @@ class SkillsLoader:
             path = s["path"]
             desc = escape_xml(self._get_skill_description(s["name"]))
             skill_meta = self._get_skill_meta(s["name"])
-            available = self._check_requirements(skill_meta)
+            available = self._check_requirements(skill_meta, enabled_tool_names=enabled_tool_names)
             
             lines.append(f"  <skill available=\"{str(available).lower()}\">")
             lines.append(f"    <name>{name}</name>")
@@ -130,7 +137,7 @@ class SkillsLoader:
             
             # Show missing requirements for unavailable skills
             if not available:
-                missing = self._get_missing_requirements(skill_meta)
+                missing = self._get_missing_requirements(skill_meta, enabled_tool_names=enabled_tool_names)
                 if missing:
                     lines.append(f"    <requires>{escape_xml(missing)}</requires>")
             
@@ -139,7 +146,11 @@ class SkillsLoader:
         
         return "\n".join(lines)
     
-    def _get_missing_requirements(self, skill_meta: dict) -> str:
+    def _get_missing_requirements(
+        self,
+        skill_meta: dict,
+        enabled_tool_names: set[str] | None = None,
+    ) -> str:
         """Get a description of missing requirements."""
         missing = []
         requires = skill_meta.get("requires", {})
@@ -149,6 +160,9 @@ class SkillsLoader:
         for env in requires.get("env", []):
             if not os.environ.get(env):
                 missing.append(f"ENV: {env}")
+        for t in requires.get("tools", []):
+            if enabled_tool_names is None or t not in enabled_tool_names:
+                missing.append(f"Tool: {t}")
         return ", ".join(missing)
     
     def _get_skill_description(self, name: str) -> str:
@@ -174,8 +188,12 @@ class SkillsLoader:
         except (json.JSONDecodeError, TypeError):
             return {}
     
-    def _check_requirements(self, skill_meta: dict) -> bool:
-        """Check if skill requirements are met (bins, env vars)."""
+    def _check_requirements(
+        self,
+        skill_meta: dict,
+        enabled_tool_names: set[str] | None = None,
+    ) -> bool:
+        """Check if skill requirements are met (bins, env vars, and optionally tools)."""
         requires = skill_meta.get("requires", {})
         for b in requires.get("bins", []):
             if not shutil.which(b):
@@ -183,6 +201,14 @@ class SkillsLoader:
         for env in requires.get("env", []):
             if not os.environ.get(env):
                 return False
+        # If skill requires specific tools, they must all be in the enabled set
+        needed_tools = requires.get("tools", [])
+        if needed_tools and isinstance(needed_tools, list):
+            if enabled_tool_names is None:
+                return False
+            for t in needed_tools:
+                if t not in enabled_tool_names:
+                    return False
         return True
     
     def _get_skill_meta(self, name: str) -> dict:
@@ -190,10 +216,10 @@ class SkillsLoader:
         meta = self.get_skill_metadata(name) or {}
         return self._parse_nanobot_metadata(meta.get("metadata", ""))
     
-    def get_always_skills(self) -> list[str]:
-        """Get skills marked as always=true that meet requirements."""
+    def get_always_skills(self, enabled_tool_names: set[str] | None = None) -> list[str]:
+        """Get skills marked as always=true that meet requirements (including tool requirements)."""
         result = []
-        for s in self.list_skills(filter_unavailable=True):
+        for s in self.list_skills(filter_unavailable=True, enabled_tool_names=enabled_tool_names):
             meta = self.get_skill_metadata(s["name"]) or {}
             skill_meta = self._parse_nanobot_metadata(meta.get("metadata", ""))
             if skill_meta.get("always") or meta.get("always"):
