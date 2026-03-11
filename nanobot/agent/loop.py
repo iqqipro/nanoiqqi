@@ -11,6 +11,13 @@ from typing import TYPE_CHECKING, Awaitable, Callable
 
 from loguru import logger
 
+from nanobot.agent.activity_events import (
+    ToolEndEvent,
+    ToolStartEvent,
+    TurnEndEvent,
+    WaitingInputEvent,
+)
+from nanobot.agent.activity_sink import ActivitySink, NoOpActivitySink
 from nanobot.agent.context import ContextBuilder
 from nanobot.agent.memory import MemoryStore
 from nanobot.agent.compaction import CompactionSafeguard
@@ -33,6 +40,42 @@ from nanobot.session.manager import Session, SessionManager
 if TYPE_CHECKING:
     from nanobot.config.schema import ExecToolConfig
     from nanobot.cron.service import CronService
+
+
+def register_shared_tools(
+    registry: ToolRegistry,
+    workspace: Path,
+    exec_config: "ExecToolConfig",
+    brave_api_key: str | None,
+    leads_mx_token: str | None,
+    image_gen_api_key: str | None,
+    image_gen_model: str | None,
+    restrict_to_workspace: bool,
+) -> None:
+    """
+    Register tools shared between main agent and subagents.
+    Single source of truth: add new user-facing tools here so both get them.
+    MCP tools are registered only on the main agent and are not passed to subagents.
+    """
+    allowed_dir = workspace if restrict_to_workspace else None
+    for cls in (ReadFileTool, WriteFileTool, EditFileTool, ListDirTool):
+        registry.register(cls(workspace=workspace, allowed_dir=allowed_dir))
+    registry.register(ExecTool(
+        working_dir=str(workspace),
+        timeout=exec_config.timeout,
+        restrict_to_workspace=restrict_to_workspace,
+    ))
+    registry.register(WebSearchTool(api_key=brave_api_key))
+    registry.register(WebFetchTool())
+    registry.register(
+        GenerateImageTool(
+            api_key=image_gen_api_key,
+            default_model=image_gen_model or "black-forest-labs/flux-2-pro",
+            workspace=workspace,
+        )
+    )
+    if leads_mx_token:
+        registry.register(LeadsMx(token=leads_mx_token, workspace=workspace))
 
 
 class SessionCleared(Exception):
@@ -74,9 +117,11 @@ class AgentLoop:
         subagent_provider: LLMProvider | None = None,
         subagent_model: str | None = None,
         leads_mx_token: str | None = None,
+        activity_sink: ActivitySink | None = None,
     ):
         from nanobot.config.schema import ExecToolConfig
         self.bus = bus
+        self._activity_sink: ActivitySink = activity_sink or NoOpActivitySink()
         self.provider = provider
         self.workspace = workspace
         self.model = model or provider.get_default_model()
@@ -101,6 +146,21 @@ class AgentLoop:
         self.tools = ToolRegistry()
         self.safeguard = CompactionSafeguard(provider, summarizer_model="google/gemini-2.5-flash")
         subagent_model_resolved = (subagent_model or "").strip() or self.model
+
+        def subagent_tool_registry_factory() -> ToolRegistry:
+            reg = ToolRegistry()
+            register_shared_tools(
+                reg,
+                workspace=self.workspace,
+                exec_config=self.exec_config,
+                brave_api_key=brave_api_key,
+                leads_mx_token=self._leads_mx_token,
+                image_gen_api_key=self._image_gen_api_key,
+                image_gen_model=self._image_gen_model,
+                restrict_to_workspace=restrict_to_workspace,
+            )
+            return reg
+
         self.subagents = SubagentManager(
             provider=subagent_provider or provider,
             workspace=workspace,
@@ -111,6 +171,8 @@ class AgentLoop:
             brave_api_key=brave_api_key,
             exec_config=self.exec_config,
             restrict_to_workspace=restrict_to_workspace,
+            activity_sink=self._activity_sink,
+            subagent_tool_registry_factory=subagent_tool_registry_factory,
         )
 
         self._running = False
@@ -122,31 +184,22 @@ class AgentLoop:
         self._register_default_tools()
 
     def _register_default_tools(self) -> None:
-        """Register the default set of tools."""
-        allowed_dir = self.workspace if self.restrict_to_workspace else None
-        for cls in (ReadFileTool, WriteFileTool, EditFileTool, ListDirTool):
-            self.tools.register(cls(workspace=self.workspace, allowed_dir=allowed_dir))
-        self.tools.register(ExecTool(
-            working_dir=str(self.workspace),
-            timeout=self.exec_config.timeout,
+        """Register the default set of tools: shared tools first, then main-only."""
+        register_shared_tools(
+            self.tools,
+            workspace=self.workspace,
+            exec_config=self.exec_config,
+            brave_api_key=self.brave_api_key,
+            leads_mx_token=self._leads_mx_token,
+            image_gen_api_key=self._image_gen_api_key,
+            image_gen_model=self._image_gen_model,
             restrict_to_workspace=self.restrict_to_workspace,
-        ))
-        self.tools.register(WebSearchTool(api_key=self.brave_api_key))
-        self.tools.register(WebFetchTool())
-        self.tools.register(
-            GenerateImageTool(
-                api_key=self._image_gen_api_key,
-                default_model=self._image_gen_model or "black-forest-labs/flux-2-pro",
-                workspace=self.workspace,
-            )
         )
         self.tools.register(MessageTool(send_callback=self.bus.publish_outbound, workspace=self.workspace))
         self.tools.register(SpawnTool(manager=self.subagents))
         self.tools.register(DumpSessionTool(session_manager=self.sessions, workspace=self.workspace))
         if self.cron_service:
             self.tools.register(CronTool(self.cron_service))
-        if self._leads_mx_token:
-            self.tools.register(LeadsMx(token=self._leads_mx_token))
 
     async def _connect_mcp(self) -> None:
         """Connect to configured MCP servers (one-time, lazy)."""
@@ -187,6 +240,24 @@ class AgentLoop:
         if dump_tool := self.tools.get("new_session"):
             if isinstance(dump_tool, DumpSessionTool):
                 dump_tool.set_context(channel, chat_id)
+
+    @staticmethod
+    def _estimate_messages_tokens(messages: list[dict]) -> int:
+        """Estimate token count for messages (heuristic char//4). Handles content as str or list of parts."""
+        total = 0
+        for m in messages:
+            content = m.get("content", "")
+            if isinstance(content, str):
+                total += len(content) // 4
+            elif isinstance(content, list):
+                for part in content:
+                    if isinstance(part, dict) and part.get("type") == "text":
+                        total += len(part.get("text", "")) // 4
+                    elif isinstance(part, str):
+                        total += len(part) // 4
+            if "tool_calls" in m:
+                total += len(json.dumps(m["tool_calls"], ensure_ascii=False)) // 4
+        return total
 
     @staticmethod
     def _strip_think(text: str | None) -> str | None:
@@ -263,6 +334,7 @@ class AgentLoop:
         initial_messages: list[dict],
         on_progress: Callable[[str], Awaitable[None]] | None = None,
         model_override: str | None = None,
+        session_id: str = "",
     ) -> tuple[str | None, list[str]]:
         """Run the agent iteration loop. Returns (final_content, tools_used)."""
         # Apply Compaction Safeguard
@@ -316,14 +388,27 @@ class AgentLoop:
                     tools_used.append(tool_call.name)
                     args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
                     logger.info("Tool call: {}({})", tool_call.name, args_str[:200])
+                    await self._activity_sink.emit(
+                        ToolStartEvent(tool=tool_call.name, session_id=session_id)
+                    )
                     result = await self.tools.execute(tool_call.name, tool_call.arguments)
-                    
+                    await self._activity_sink.emit(
+                        ToolEndEvent(tool=tool_call.name, session_id=session_id)
+                    )
                     if "[CLEAR_SESSION_STATE_NOW]" in result:
                         raise SessionCleared(result.replace("[CLEAR_SESSION_STATE_NOW]", "").strip())
 
                     messages = self.context.add_tool_result(
                         messages, tool_call.id, tool_call.name, result
                     )
+
+                # Mid-turn compression: avoid context overflow after many tool calls
+                estimated = self._estimate_messages_tokens(messages)
+                if (
+                    estimated >= CompactionSafeguard.TRIGGER_TOKENS
+                    or iteration % 5 == 0
+                ):
+                    messages = await self.safeguard.process(messages)
             else:
                 final_content = self._strip_think(response.content)
                 break
@@ -394,7 +479,9 @@ class AgentLoop:
                 history=session.get_history(max_messages=self.memory_window),
                 current_message=msg.content, channel=channel, chat_id=chat_id,
             )
-            final_content, _ = await self._run_agent_loop(messages, model_override=model_override)
+            final_content, _ = await self._run_agent_loop(
+                messages, model_override=model_override, session_id=key
+            )
             session.add_message("user", f"[System: {msg.sender_id}] {msg.content}")
             session.add_message("assistant", final_content or "Background task completed.")
             self.sessions.save(session)
@@ -467,6 +554,7 @@ class AgentLoop:
                 initial_messages,
                 on_progress=on_progress or _bus_progress,
                 model_override=model_override,
+                session_id=key,
             )
         except SessionCleared as e:
             session.clear()
@@ -488,8 +576,12 @@ class AgentLoop:
 
         if message_tool := self.tools.get("message"):
             if isinstance(message_tool, MessageTool) and message_tool._sent_in_turn:
+                await self._activity_sink.emit(TurnEndEvent(session_id=key))
+                await self._activity_sink.emit(WaitingInputEvent(session_id=key))
                 return None
 
+        await self._activity_sink.emit(TurnEndEvent(session_id=key))
+        await self._activity_sink.emit(WaitingInputEvent(session_id=key))
         content_out, media_paths = self._extract_media_from_content(final_content, self.workspace)
         return OutboundMessage(
             channel=msg.channel,

@@ -876,7 +876,10 @@ nanobot/
 │   ├── memory.py   #    Persistent memory
 │   ├── skills.py   #    Skills loader
 │   ├── subagent.py #    Background task execution
+│   ├── activity_events.py  # Activity event types (Brain Office)
+│   ├── activity_sink.py   # Event sink for Brain Office (always on)
 │   └── tools/      #    Built-in tools (incl. spawn)
+├── brain-office/   # 🖥️ Brain Office web UI (agent activity in real time, always on)
 ├── skills/         # 🎯 Bundled skills (github, weather, tmux...)
 ├── channels/       # 📱 Chat channel integrations
 ├── bus/            # 🚌 Message routing
@@ -887,6 +890,16 @@ nanobot/
 ├── config/         # ⚙️ Configuration
 └── cli/            # 🖥️ Commands
 ```
+
+## Brain Office
+
+[Brain Office](brain-office/README.md) is a small web app that shows the agent as a character in a pixel-art office. The character state updates in real time (reading, typing, running commands, waiting for input). **Activity events are always sent**; you only set `brainOffice.url` if the backend is not at `http://localhost:8765`.
+
+- **Run:** Start the backend (`cd brain-office/backend && uvicorn app:app --port 8765`), then the frontend (`cd brain-office/frontend && npm run dev`). Open http://localhost:5173. Or use Docker: `docker compose up -d brain-office` and open http://localhost:8765.
+- **Configure URL (optional):** In `~/.nanobot/config.json` set `brainOffice.url: "http://localhost:8765"` (or `http://brain-office:8765` when the agent runs in Docker).
+- **Event flow:** Nanobot → POST `/events` → Backend → WebSocket `/ws` → Frontend.
+
+See [brain-office/README.md](brain-office/README.md) for details.
 
 ## 🤝 Contribute & Roadmap
 

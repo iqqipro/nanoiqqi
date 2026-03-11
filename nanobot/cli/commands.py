@@ -463,6 +463,32 @@ def _make_provider(config: Config):
     return inner, None
 
 
+def _make_activity_sink(config: Config):
+    """Create activity sink for Brain Office (always on). URL from config.brain_office."""
+    from nanobot.agent.activity_sink import make_activity_sink
+    bo = getattr(config, "brain_office", None)
+    url = (bo.url or "http://localhost:8765").strip() if bo else "http://localhost:8765"
+    return make_activity_sink(url)
+
+
+def _make_brain_office_bridge(bus, config, agent_loop):
+    """Create the optional Brain Office command bridge."""
+    from nanobot.brain_office.bridge import BrainOfficeBridge
+
+    bo = getattr(config, "brain_office", None)
+    url = (bo.url or "http://localhost:8765").strip() if bo else "http://localhost:8765"
+
+    async def _spawn(task: str, label: str | None, chat_id: str) -> str:
+        return await agent_loop.subagents.spawn(
+            task=task,
+            label=label,
+            origin_channel="brain-office",
+            origin_chat_id=chat_id,
+        )
+
+    return BrainOfficeBridge(bus=bus, base_url=url, spawn_callback=_spawn)
+
+
 # ============================================================================
 # Gateway / Server
 # ============================================================================
@@ -524,6 +550,7 @@ def gateway(
         subagent_provider=subagent_provider,
         subagent_model=(config.agents.defaults.subagent_model or "").strip() or None,
         leads_mx_token=config.tools.leads_mx.token or None,
+        activity_sink=_make_activity_sink(config),
     )
 
     # Set cron callback (needs agent)
@@ -562,8 +589,14 @@ def gateway(
         model=hb_model,
     )
     
+    brain_office_bridge = _make_brain_office_bridge(bus, config, agent)
+
     # Create channel manager
-    channels = ChannelManager(config, bus)
+    channels = ChannelManager(
+        config,
+        bus,
+        custom_dispatchers={"brain-office": brain_office_bridge.dispatch_outbound},
+    )
     
     if channels.enabled_channels:
         console.print(f"[bold {_GREEN_BOLT}]✓[/bold {_GREEN_BOLT}] Channels enabled: {', '.join(channels.enabled_channels)}")
@@ -585,11 +618,13 @@ def gateway(
             await asyncio.gather(
                 agent.run(),
                 channels.start_all(),
+                brain_office_bridge.run(),
             )
         except KeyboardInterrupt:
             console.print("\nShutting down...")
         finally:
             await agent.close_mcp()
+            await brain_office_bridge.aclose()
             heartbeat.stop()
             cron.stop()
             agent.stop()
@@ -656,7 +691,9 @@ def agent(
         subagent_provider=subagent_provider,
         subagent_model=(config.agents.defaults.subagent_model or "").strip() or None,
         leads_mx_token=config.tools.leads_mx.token or None,
+        activity_sink=_make_activity_sink(config),
     )
+    brain_office_bridge = _make_brain_office_bridge(bus, config, agent_loop)
 
     # Animated thinking indicator (single line)
     class _ThinkingIndicator:
@@ -732,6 +769,7 @@ def agent(
 
         async def run_interactive():
             bus_task = asyncio.create_task(agent_loop.run())
+            brain_office_task = asyncio.create_task(brain_office_bridge.run())
             turn_done = asyncio.Event()
             turn_done.set()
             turn_response: list[str] = []
@@ -740,6 +778,9 @@ def agent(
                 while True:
                     try:
                         msg = await asyncio.wait_for(bus.consume_outbound(), timeout=1.0)
+                        if msg.channel == "brain-office":
+                            await brain_office_bridge.dispatch_outbound(msg)
+                            continue
                         if msg.metadata.get("_progress"):
                             console.print(f"  [dim {_GREEN_BOLT}]↳[/dim {_GREEN_BOLT}] [dim {_GREEN_BOLT}]{msg.content}[/dim {_GREEN_BOLT}]")
                         elif not turn_done.is_set():
@@ -796,7 +837,9 @@ def agent(
             finally:
                 agent_loop.stop()
                 outbound_task.cancel()
-                await asyncio.gather(bus_task, outbound_task, return_exceptions=True)
+                brain_office_task.cancel()
+                await asyncio.gather(bus_task, outbound_task, brain_office_task, return_exceptions=True)
+                await brain_office_bridge.aclose()
                 await agent_loop.close_mcp()
 
         asyncio.run(run_interactive())
@@ -1176,6 +1219,7 @@ def cron_run(
         subagent_provider=subagent_provider,
         subagent_model=(config.agents.defaults.subagent_model or "").strip() or None,
         leads_mx_token=config.tools.leads_mx.token or None,
+        activity_sink=_make_activity_sink(config),
     )
 
     store_path = get_data_dir() / "cron" / "jobs.json"

@@ -33,6 +33,8 @@ JUDGE_DOMAINS = frozenset({"code", "general", "math", "agentic", "unknown"})
 
 # Subagent profile: map judge complexity to minimum agentic capability (0–1)
 JUDGE_COMPLEXITY_TO_MIN_CAP = {"simple": 0.2, "medium": 0.45, "complex": 0.7}
+# Subagent profile: max models in fallback chain (try in order by cost/domain)
+SUBAGENT_CHAIN_SIZE = 5
 
 
 def _infer_task_complexity(task_text: str) -> float:
@@ -75,6 +77,21 @@ def _normalize_model_id(model_id: str) -> str:
 def _normalized_exclude_set(exclude_models: list[str]) -> set[str]:
     """Build set of normalized model IDs to exclude (lowercase, without openrouter/ prefix)."""
     return {_normalize_model_id(e) for e in (exclude_models or []) if (e or "").strip()}
+
+
+def _is_invalid_model_error(text: str) -> bool:
+    """
+    True if error/content indicates the model is invalid for this request (OpenRouter).
+    Covers: invalid model ID, 400, no endpoints that support tools/function calling.
+    """
+    if not text or not isinstance(text, str):
+        return False
+    t = text.lower()
+    if "not a valid model" in t or "400" in t:
+        return True
+    if "no endpoints" in t and ("support tools" in t or "function calling" in t):
+        return True
+    return False
 
 
 def _first_user_content_key(messages: list[dict[str, Any]], max_len: int = 1000) -> str:
@@ -495,8 +512,28 @@ class SmartRouter(LLMProvider):
                 temperature,
             )
 
-        # 4. Execute with strategy (simple: primary then fallbacks)
+        # 4. Execute with strategy (primary then fallbacks via shared chain)
         chain = [primary] + fallbacks
+        return await self._execute_with_chain(
+            messages, tools, chain, max_tokens, temperature, record_metrics=True
+        )
+
+    async def _execute_with_chain(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None,
+        chain: list[str],
+        max_tokens: int,
+        temperature: float,
+        *,
+        record_metrics: bool = True,
+    ) -> LLMResponse:
+        """
+        Try each model in chain in order; skip if in _invalid_model_ids.
+        On exception or finish_reason==error, mark model invalid when error text
+        indicates invalid/support tools/400; then try next. Return first success
+        or error response at end of chain.
+        """
         last_response: LLMResponse | None = None
         for i, chosen in enumerate(chain):
             if chosen.lower() in self._invalid_model_ids:
@@ -512,17 +549,19 @@ class SmartRouter(LLMProvider):
                 )
             except Exception as e:
                 err_text = str(e)
-                if "not a valid model" in err_text.lower() or "400" in err_text:
+                if _is_invalid_model_error(err_text):
                     self._invalid_model_ids.add(chosen.lower())
                     logger.warning("Marking model as invalid (OpenRouter): {}", chosen)
-                self._metrics.record_outcome(chosen, False, None)
+                if record_metrics:
+                    self._metrics.record_outcome(chosen, False, None)
                 logger.warning("Smart router attempt {} failed: {}", chosen, err_text[:120])
                 last_response = None
                 continue
             latency_ms = (time.perf_counter() - t0) * 1000
             success = last_response.finish_reason != "error"
-            self._metrics.record_outcome(chosen, success, latency_ms)
-            if not success and last_response.content and "not a valid model" in (last_response.content or "").lower():
+            if record_metrics:
+                self._metrics.record_outcome(chosen, success, latency_ms)
+            if not success and last_response.content and _is_invalid_model_error(last_response.content):
                 self._invalid_model_ids.add(chosen.lower())
                 logger.warning("Marking model as invalid (OpenRouter): {}", chosen)
             if success:
@@ -569,12 +608,17 @@ class SmartRouter(LLMProvider):
         if not caps:
             fallback = model or self._default_model_hint
             logger.debug("Smart router (subagent): no capabilities list; using {}", fallback)
-            return await self._inner.chat(
-                messages=messages,
-                tools=tools,
-                model=fallback,
-                max_tokens=max_tokens,
-                temperature=temperature,
+            chain = [fallback] if fallback else []
+            if not chain:
+                return await self._inner.chat(
+                    messages=messages,
+                    tools=tools,
+                    model=model or self._default_model_hint,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                )
+            return await self._execute_with_chain(
+                messages, tools, chain, max_tokens, temperature, record_metrics=False
             )
 
         req = request_requirements(messages, tools, max_tokens=max_tokens)
@@ -639,29 +683,28 @@ class SmartRouter(LLMProvider):
                 min_capability,
                 fallback,
             )
-            return await self._inner.chat(
-                messages=messages,
-                tools=tools,
-                model=fallback,
-                max_tokens=max_tokens,
-                temperature=temperature,
+            chain = [fallback] if fallback else []
+            if not chain:
+                return await self._inner.chat(
+                    messages=messages,
+                    tools=tools,
+                    model=model or self._default_model_hint,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                )
+            return await self._execute_with_chain(
+                messages, tools, chain, max_tokens, temperature, record_metrics=False
             )
 
         capable.sort(key=lambda x: (x[2], -x[3]))
-        chosen_cap = capable[0][0]
-        chosen_id = chosen_cap.normalized_id()
+        chain = [cap.normalized_id() for cap, *_ in capable[:SUBAGENT_CHAIN_SIZE]]
         logger.debug(
-            "Smart router (subagent): min_cap {:.2f}, domain {}, chosen {} (cost ~{:.4f}, domain_q ~{:.2f})",
+            "Smart router (subagent): min_cap {:.2f}, domain {}, chain {} (size {})",
             min_capability,
             domain,
-            chosen_id,
-            capable[0][2],
-            capable[0][3],
+            chain[:3],
+            len(chain),
         )
-        return await self._inner.chat(
-            messages=messages,
-            tools=tools,
-            model=chosen_id,
-            max_tokens=max_tokens,
-            temperature=temperature,
+        return await self._execute_with_chain(
+            messages, tools, chain, max_tokens, temperature, record_metrics=False
         )

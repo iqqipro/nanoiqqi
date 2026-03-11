@@ -14,9 +14,11 @@ from __future__ import annotations
 
 import time
 import unicodedata
+from pathlib import Path
 from typing import Any
 
 import httpx
+from loguru import logger
 
 from nanobot.agent.tools.base import Tool
 
@@ -57,11 +59,11 @@ DENUE_DISTANCIA_MAX_METROS = 5000
 # TTL del caché en memoria (segundos): 24 horas.
 DENUE_CACHE_TTL_SECONDS = 24 * 3600
 
-# Máximo de caracteres en respuesta formateada antes de truncar (opcional).
+# Máximo de caracteres en respuesta antes de guardar en archivo (guardar en workspace/leads_results/).
 DENUE_OUTPUT_MAX_CHARS = 4000
 
-# Número de filas a mostrar en listados (reducir tokens).
-DENUE_SHOW_ROWS = 12
+# Máximo de ítems a incluir en el texto de respuesta (resto: "primeros N de X total").
+MAX_ITEMS_IN_RESPONSE = 100
 
 
 def _normalize_lookup(s: str) -> str:
@@ -241,13 +243,13 @@ def _format_denue_results(items: list[Any], method: str = "") -> str:
     """
     Formatea la lista de establecimientos DENUE como tabla markdown con emojis.
     Acepta listas de listas (orden INEGI) o listas de diccionarios.
-    Muestra como máximo DENUE_SHOW_ROWS filas para reducir tokens.
+    Muestra como máximo MAX_ITEMS_IN_RESPONSE filas para reducir tokens.
     """
     if not items:
         return "📭 **Sin resultados** para los filtros indicados."
 
     total = len(items)
-    show = items[:DENUE_SHOW_ROWS]
+    show = items[:MAX_ITEMS_IN_RESPONSE]
     header_emoji = "📋"
     title = f"{header_emoji} **{total} establecimiento(s) encontrado(s)**"
     if method:
@@ -291,10 +293,8 @@ def _format_denue_results(items: list[Any], method: str = "") -> str:
         )
 
     out = title + "\n" + "\n".join(table_lines)
-    if total > DENUE_SHOW_ROWS:
-        out += f"\n\n📄 _Mostrando {DENUE_SHOW_ROWS} de {total}. Usa_ `registro_inicial` _y_ `registro_final` _para ver más._"
-    if len(out) > DENUE_OUTPUT_MAX_CHARS:
-        out = out[:DENUE_OUTPUT_MAX_CHARS] + f"\n\n📄 _[Respuesta truncada. Total: {total} establecimientos.]_"
+    if total > MAX_ITEMS_IN_RESPONSE:
+        out += f"\n\n📄 _Primeros {MAX_ITEMS_IN_RESPONSE} de {total} total; usa_ `registro_inicial` _y_ `registro_final` _para más._"
     return out
 
 
@@ -464,8 +464,9 @@ class LeadsMx(Tool):
         "required": ["method"],
     }
 
-    def __init__(self, token: str = ""):
+    def __init__(self, token: str = "", workspace: Path | None = None):
         self.token = (token or "").strip()
+        self.workspace = workspace
         # Caché en memoria: clave (URL) → { "data": respuesta cruda, "expires": timestamp }
         self._cache: dict[str, dict[str, Any]] = {}
 
@@ -513,6 +514,22 @@ class LeadsMx(Tool):
 
     def _url_cuantificar(self, actividad: str, area_geografica: str, estrato: str) -> str:
         return f"{DENUE_BASE}/Cuantificar/{actividad}/{area_geografica}/{estrato}/{self.token}"
+
+    def _maybe_save_large_result(self, result: str, num_registers: int | None = None) -> str:
+        """
+        If result is longer than DENUE_OUTPUT_MAX_CHARS and workspace is set,
+        save to workspace/leads_results/leads_<timestamp>.txt and return a short message.
+        """
+        if not self.workspace or len(result) <= DENUE_OUTPUT_MAX_CHARS:
+            return result
+        leads_dir = self.workspace / "leads_results"
+        leads_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        path = leads_dir / f"leads_{timestamp}.txt"
+        path.write_text(result, encoding="utf-8")
+        rel_path = f"workspace/leads_results/leads_{timestamp}.txt"
+        count_msg = f"{num_registers} registros" if num_registers is not None else "resultado"
+        return f"Resultado guardado en {rel_path} ({count_msg}). Usa read_file si necesitas el contenido."
 
     def _hint_methods(self) -> str:
         """Mensaje corto para guiar al modelo cuando falta method o hay error de parámetros."""
@@ -645,39 +662,50 @@ class LeadsMx(Tool):
             if data is not None:
                 if method == "ficha":
                     if isinstance(data, list) and len(data) == 1:
-                        return _format_ficha(data[0])
+                        return self._maybe_save_large_result(_format_ficha(data[0]), num_registers=1)
                     if isinstance(data, dict):
-                        return _format_ficha(data)
-                    return str(data)
+                        return self._maybe_save_large_result(_format_ficha(data), num_registers=1)
+                    return self._maybe_save_large_result(str(data))
                 if method == "cuantificar":
-                    return _format_cuantificar(data)
+                    return self._maybe_save_large_result(_format_cuantificar(data))
                 if isinstance(data, list):
-                    return _format_denue_results(data, method)
-                return str(data)
+                    return self._maybe_save_large_result(
+                        _format_denue_results(data, method), num_registers=len(data)
+                    )
+                return self._maybe_save_large_result(str(data))
 
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 r = await client.get(url)
                 if r.status_code != 200:
-                    return f"Error: DENUE API devolvió HTTP {r.status_code}. Cuerpo: {r.text[:500]}"
+                    msg = f"Error: DENUE API devolvió HTTP {r.status_code}. Cuerpo: {r.text[:500]}"
+                    logger.warning("LeadsMx DENUE HTTP {} (method={}): {}", r.status_code, method, r.text[:300])
+                    return msg
                 data = r.json()
                 if isinstance(data, dict) and data.get("error"):
-                    return f"Error: {data.get('error', data)}"
+                    err = data.get("error", data)
+                    logger.warning("LeadsMx DENUE error response (method={}): {}", method, err)
+                    return f"Error: {err}"
                 self._cache[url] = {"data": data, "expires": now + DENUE_CACHE_TTL_SECONDS}
                 if method == "ficha":
                     if isinstance(data, list) and len(data) == 1:
-                        return _format_ficha(data[0])
+                        return self._maybe_save_large_result(_format_ficha(data[0]), num_registers=1)
                     if isinstance(data, dict):
-                        return _format_ficha(data)
-                    return str(data)
+                        return self._maybe_save_large_result(_format_ficha(data), num_registers=1)
+                    return self._maybe_save_large_result(str(data))
                 if method == "cuantificar":
-                    return _format_cuantificar(data)
+                    return self._maybe_save_large_result(_format_cuantificar(data))
                 if isinstance(data, list):
-                    return _format_denue_results(data, method)
-                return str(data)
+                    return self._maybe_save_large_result(
+                        _format_denue_results(data, method), num_registers=len(data)
+                    )
+                return self._maybe_save_large_result(str(data))
         except httpx.TimeoutException:
+            logger.warning("LeadsMx DENUE timeout (method={})", method)
             return "Error: Tiempo de espera agotado al consultar la API DENUE."
         except httpx.RequestError as e:
+            logger.warning("LeadsMx DENUE request error (method={}): {}", method, e)
             return f"Error: Fallo de conexión con DENUE: {e}"
         except Exception as e:
+            logger.warning("LeadsMx DENUE exception (method={}): {}", method, e)
             return f"Error: {e}"

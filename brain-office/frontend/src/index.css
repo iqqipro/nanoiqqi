@@ -1,0 +1,35 @@
+@import "tailwindcss";
+
+:root {
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-family: "Roboto", system-ui, sans-serif;
+  color: #111111;
+  background-color: #ffffff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+}
+
+body {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  font-family: "Roboto", system-ui, sans-serif;
+}
+
+select,
+button,
+input {
+  font: inherit;
+}

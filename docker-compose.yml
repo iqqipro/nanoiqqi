@@ -11,6 +11,8 @@ services:
     <<: *common-config
     command: ["gateway"]
     restart: unless-stopped
+    environment:
+      - NANOBOT_BRAIN_OFFICE__URL=http://brain-office:8765
     ports:
       - 18790:18790
     deploy:
@@ -29,3 +31,14 @@ services:
     command: ["status"]
     stdin_open: true
     tty: true
+    environment:
+      - NANOBOT_BRAIN_OFFICE__URL=http://brain-office:8765
+
+  brain-office:
+    build:
+      context: ./brain-office
+      dockerfile: Dockerfile
+    container_name: brain-office
+    ports:
+      - "8765:8765"
+    restart: unless-stopped

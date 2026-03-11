@@ -294,6 +294,12 @@ class LeadsMxConfig(Base):
     token: str = Field(default="", description="Token de API DENUE (INEGI). Obtener en https://www.inegi.org.mx/app/api/denue/")
 
 
+class BrainOfficeConfig(Base):
+    """Brain Office: activity stream for the web UI (always on). Events are POSTed to url/events."""
+
+    url: str = Field(default="http://localhost:8765", description="Brain Office backend base URL (POST /events)")
+
+
 class SmartRouterConfig(Base):
     """Smart routing tool: uses Artificial Analysis API for model data. Only active when api_key is set."""
 
@@ -338,6 +344,7 @@ class Config(BaseSettings):
     routing: RoutingConfig = Field(default_factory=RoutingConfig)
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
+    brain_office: BrainOfficeConfig = Field(default_factory=BrainOfficeConfig)
 
     @property
     def workspace_path(self) -> Path:

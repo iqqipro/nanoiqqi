@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 from loguru import logger
 
@@ -23,10 +23,16 @@ class ChannelManager:
     - Route outbound messages
     """
     
-    def __init__(self, config: Config, bus: MessageBus):
+    def __init__(
+        self,
+        config: Config,
+        bus: MessageBus,
+        custom_dispatchers: dict[str, Callable[[OutboundMessage], Awaitable[None]]] | None = None,
+    ):
         self.config = config
         self.bus = bus
         self.channels: dict[str, BaseChannel] = {}
+        self.custom_dispatchers = custom_dispatchers or {}
         self._dispatch_task: asyncio.Task | None = None
         
         self._init_channels()
@@ -146,13 +152,14 @@ class ChannelManager:
 
     async def start_all(self) -> None:
         """Start all channels and the outbound dispatcher."""
+        # Always start the outbound dispatcher so custom dispatchers
+        # like Brain Office continue to work even with no chat channels enabled.
+        self._dispatch_task = asyncio.create_task(self._dispatch_outbound())
+
         if not self.channels:
             logger.warning("No channels enabled")
             return
-        
-        # Start outbound dispatcher
-        self._dispatch_task = asyncio.create_task(self._dispatch_outbound())
-        
+
         # Start channels
         tasks = []
         for name, channel in self.channels.items():
@@ -193,14 +200,21 @@ class ChannelManager:
                     timeout=1.0
                 )
                 
-                channel = self.channels.get(msg.channel)
-                if channel:
+                custom_dispatcher = self.custom_dispatchers.get(msg.channel)
+                if custom_dispatcher is not None:
                     try:
-                        await channel.send(msg)
+                        await custom_dispatcher(msg)
                     except Exception as e:
-                        logger.error("Error sending to {}: {}", msg.channel, e)
+                        logger.error("Error sending to custom dispatcher {}: {}", msg.channel, e)
                 else:
-                    logger.warning("Unknown channel: {}", msg.channel)
+                    channel = self.channels.get(msg.channel)
+                    if channel:
+                        try:
+                            await channel.send(msg)
+                        except Exception as e:
+                            logger.error("Error sending to {}: {}", msg.channel, e)
+                    else:
+                        logger.warning("Unknown channel: {}", msg.channel)
                     
             except asyncio.TimeoutError:
                 continue

@@ -4,17 +4,23 @@ import asyncio
 import json
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from loguru import logger
 
 from nanobot.bus.events import InboundMessage
+
+if TYPE_CHECKING:
+    from nanobot.agent.activity_sink import ActivitySink
 from nanobot.bus.queue import MessageBus
 from nanobot.providers.base import LLMProvider
 from nanobot.agent.tools.registry import ToolRegistry
-from nanobot.agent.tools.filesystem import ReadFileTool, WriteFileTool, EditFileTool, ListDirTool
-from nanobot.agent.tools.shell import ExecTool
-from nanobot.agent.tools.web import WebSearchTool, WebFetchTool
+
+
+# Max estimated tokens before trimming subagent conversation history.
+SUBAGENT_MAX_TOKENS = 80_000
+# Number of most recent messages to keep when trimming (assistant/tool alternation).
+SUBAGENT_TRIM_LAST_K = 6
 
 
 class SubagentManager:
@@ -25,6 +31,49 @@ class SubagentManager:
     to handle specific tasks. They share the same LLM provider but have
     isolated context and a focused system prompt.
     """
+
+    @staticmethod
+    def _estimate_messages_tokens(messages: list[dict[str, Any]]) -> int:
+        """Estimate token count (heuristic char//4). Content may be str or list of parts."""
+        total = 0
+        for m in messages:
+            content = m.get("content", "")
+            if isinstance(content, str):
+                total += len(content) // 4
+            elif isinstance(content, list):
+                for part in content:
+                    if isinstance(part, dict) and part.get("type") == "text":
+                        total += len(part.get("text", "")) // 4
+                    elif isinstance(part, str):
+                        total += len(part) // 4
+            if "tool_calls" in m:
+                total += len(json.dumps(m["tool_calls"], ensure_ascii=False)) // 4
+        return total
+
+    @staticmethod
+    def _trim_messages_if_needed(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """
+        If token estimate exceeds SUBAGENT_MAX_TOKENS, keep system, first user,
+        last SUBAGENT_TRIM_LAST_K messages, and replace the middle with a summary message.
+        """
+        if len(messages) <= 2 + SUBAGENT_TRIM_LAST_K:
+            return messages
+        estimated = SubagentManager._estimate_messages_tokens(messages)
+        if estimated <= SUBAGENT_MAX_TOKENS:
+            return messages
+        # Count tool messages in the middle block (between index 1 and last K)
+        middle = messages[2 : -(SUBAGENT_TRIM_LAST_K)] if SUBAGENT_TRIM_LAST_K > 0 else messages[2:]
+        n_tool = sum(1 for m in middle if m.get("role") == "tool")
+        summary = {
+            "role": "system",
+            "content": f"Resumen: el subagente ejecutó {n_tool} herramientas; últimos resultados resumidos.",
+        }
+        return [
+            messages[0],
+            messages[1],
+            summary,
+            *messages[-SUBAGENT_TRIM_LAST_K:],
+        ]
     
     def __init__(
         self,
@@ -37,7 +86,10 @@ class SubagentManager:
         brave_api_key: str | None = None,
         exec_config: "ExecToolConfig | None" = None,
         restrict_to_workspace: bool = False,
+        activity_sink: "ActivitySink | None" = None,
+        subagent_tool_registry_factory: Callable[[], ToolRegistry] | None = None,
     ):
+        from nanobot.agent.activity_sink import NoOpActivitySink
         from nanobot.config.schema import ExecToolConfig
         self.provider = provider
         self.workspace = workspace
@@ -48,6 +100,8 @@ class SubagentManager:
         self.brave_api_key = brave_api_key
         self.exec_config = exec_config or ExecToolConfig()
         self.restrict_to_workspace = restrict_to_workspace
+        self._activity_sink = activity_sink or NoOpActivitySink()
+        self._subagent_tool_registry_factory = subagent_tool_registry_factory
         self._running_tasks: dict[str, asyncio.Task[None]] = {}
     
     async def spawn(
@@ -97,24 +151,21 @@ class SubagentManager:
         origin: dict[str, str],
     ) -> None:
         """Execute the subagent task and announce the result."""
+        from nanobot.agent.activity_events import SubagentEndEvent, SubagentStartEvent
+
+        parent_session_id = f"{origin['channel']}:{origin['chat_id']}"
+        await self._activity_sink.emit(
+            SubagentStartEvent(id=task_id, label=label, parent_session_id=parent_session_id)
+        )
         logger.info("Subagent [{}] starting task: {}", task_id, label)
-        
+
         try:
-            # Build subagent tools (no message tool, no spawn tool)
-            tools = ToolRegistry()
-            allowed_dir = self.workspace if self.restrict_to_workspace else None
-            tools.register(ReadFileTool(workspace=self.workspace, allowed_dir=allowed_dir))
-            tools.register(WriteFileTool(workspace=self.workspace, allowed_dir=allowed_dir))
-            tools.register(EditFileTool(workspace=self.workspace, allowed_dir=allowed_dir))
-            tools.register(ListDirTool(workspace=self.workspace, allowed_dir=allowed_dir))
-            tools.register(ExecTool(
-                working_dir=str(self.workspace),
-                timeout=self.exec_config.timeout,
-                restrict_to_workspace=self.restrict_to_workspace,
-            ))
-            tools.register(WebSearchTool(api_key=self.brave_api_key))
-            tools.register(WebFetchTool())
-            
+            # Build subagent tools from shared factory (includes LeadsMx, filesystem, web, etc.; no message/spawn)
+            if self._subagent_tool_registry_factory:
+                tools = self._subagent_tool_registry_factory()
+            else:
+                tools = ToolRegistry()
+
             # Build messages with subagent-specific prompt
             system_prompt = self._build_subagent_prompt(task)
             messages: list[dict[str, Any]] = [
@@ -129,7 +180,9 @@ class SubagentManager:
             
             while iteration < max_iterations:
                 iteration += 1
-                
+
+                messages = self._trim_messages_if_needed(messages)
+
                 response = await self.provider.chat(
                     messages=messages,
                     tools=tools.get_definitions(),
@@ -175,14 +228,16 @@ class SubagentManager:
             
             if final_result is None:
                 final_result = "Task completed but no final response was generated."
-            
+
             logger.info("Subagent [{}] completed successfully", task_id)
             await self._announce_result(task_id, label, task, final_result, origin, "ok")
-            
+
         except Exception as e:
             error_msg = f"Error: {str(e)}"
             logger.error("Subagent [{}] failed: {}", task_id, e)
             await self._announce_result(task_id, label, task, error_msg, origin, "error")
+        finally:
+            await self._activity_sink.emit(SubagentEndEvent(id=task_id, label=label))
     
     async def _announce_result(
         self,
