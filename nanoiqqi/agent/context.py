@@ -24,11 +24,13 @@ class ContextBuilder:
         self,
         workspace: Path,
         get_enabled_tool_names: Callable[[], set[str]] | None = None,
+        config_always_skills: list[str] | None = None,
     ):
         self.workspace = workspace
         self.memory = MemoryStore(workspace)
         self.skills = SkillsLoader(workspace)
         self.get_enabled_tool_names = get_enabled_tool_names
+        self.config_always_skills = config_always_skills or []
 
     def build_system_prompt(self, skill_names: list[str] | None = None) -> str:
         """
@@ -58,8 +60,17 @@ class ContextBuilder:
         enabled_tool_names = self.get_enabled_tool_names() if self.get_enabled_tool_names else None
 
         # Skills - progressive loading
-        # 1. Always-loaded skills: include full content (only those whose requirements are met, e.g. tool LeadsMx)
-        always_skills = self.skills.get_always_skills(enabled_tool_names=enabled_tool_names)
+        # 1. Always-loaded skills: from config (onboard choice) + frontmatter always=true; only those whose requirements are met
+        from_frontmatter = self.skills.get_always_skills(enabled_tool_names=enabled_tool_names)
+        from_config = [s for s in self.config_always_skills if s]
+        combined = list(dict.fromkeys(from_config + from_frontmatter))
+        always_skills = [
+            name for name in combined
+            if self.skills.load_skill(name)
+            and self.skills._check_requirements(
+                self.skills._get_skill_meta(name), enabled_tool_names=enabled_tool_names
+            )
+        ]
         if always_skills:
             always_content = self.skills.load_skills_for_context(always_skills)
             if always_content:
