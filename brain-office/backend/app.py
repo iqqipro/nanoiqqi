@@ -1,5 +1,5 @@
 """
-Brain Office backend: receives activity events from nanobot (POST /events)
+Brain Office backend: receives activity events from nanoiqqi (POST /events)
 and broadcasts them to web clients over WebSocket (/ws).
 """
 
@@ -97,7 +97,7 @@ def _save_uploaded_media(
 @app.post("/events")
 async def post_event(request: Request) -> JSONResponse:
     """
-    Receive a single activity event from nanobot (HTTP POST).
+    Receive a single activity event from nanoiqqi (HTTP POST).
     Body must be a JSON object with at least "type" and "ts".
     The event is broadcast to all connected WebSocket clients.
     """

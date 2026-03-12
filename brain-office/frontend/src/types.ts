@@ -1,4 +1,4 @@
-/** Activity event from nanobot (same contract as backend). */
+/** Activity event from nanoiqqi (same contract as backend). */
 export interface ActivityEvent {
   type: string;
   ts?: string;
