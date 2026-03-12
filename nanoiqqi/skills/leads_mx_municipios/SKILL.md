@@ -1,6 +1,6 @@
 ---
 name: leads_mx_municipios
-description: Catálogo de claves INEGI de municipios de México para la tool LeadsMx. Consultar cuando el usuario pida buscar establecimientos en una ciudad o municipio específico.
+description: INEGI municipality code catalog for the LeadsMx tool. Use when the user asks to search establishments in a specific city or municipality.
 metadata: {"nanoiqqi":{"emoji":"🗺️","requires":{"tools":["LeadsMx"]}}}
 ---
 
