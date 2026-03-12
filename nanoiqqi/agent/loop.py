@@ -118,6 +118,7 @@ class AgentLoop:
         subagent_model: str | None = None,
         leads_mx_token: str | None = None,
         activity_sink: ActivitySink | None = None,
+        always_skills: list[str] | None = None,
     ):
         from nanoiqqi.config.schema import ExecToolConfig
         self.bus = bus
@@ -141,6 +142,7 @@ class AgentLoop:
         self.context = ContextBuilder(
             workspace,
             get_enabled_tool_names=lambda: set(self.tools.tool_names),
+            config_always_skills=always_skills or [],
         )
         self.sessions = session_manager or SessionManager(workspace)
         self.tools = ToolRegistry()
