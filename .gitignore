@@ -53,7 +53,7 @@ coverage.xml
 .cache
 htmlcov/
 
-# --- Specific to Nanobot ---
+# --- Specific to nanoiqqi ---
 .assets
 botpy.log
 tests/  # Asegúrate de que realmente no quieras subir tus tests

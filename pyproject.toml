@@ -1,11 +1,11 @@
 [project]
-name = "nanobot-ai"
+name = "nanoiqqi"
 version = "0.1.4.post1"
 description = "A lightweight personal AI assistant framework"
 requires-python = ">=3.11"
 license = {text = "MIT"}
 authors = [
-    {name = "nanobot contributors"}
+    {name = "nanoiqqi contributors"}
 ]
 keywords = ["ai", "agent", "chatbot"]
 classifiers = [
@@ -56,36 +56,36 @@ brain-office = [
 ]
 
 [project.scripts]
-nanobot = "nanobot.cli.commands:app"
+nanoiqqi = "nanoiqqi.cli.commands:app"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["nanobot"]
+packages = ["nanoiqqi"]
 
 [tool.hatch.build.targets.wheel.sources]
-"nanobot" = "nanobot"
+"nanoiqqi" = "nanoiqqi"
 
 # Include non-Python files in skills
 [tool.hatch.build]
 include = [
-    "nanobot/**/*.py",
-    "nanobot/skills/**/*.md",
-    "nanobot/skills/**/*.sh",
+    "nanoiqqi/**/*.py",
+    "nanoiqqi/skills/**/*.md",
+    "nanoiqqi/skills/**/*.sh",
 ]
 
 [tool.hatch.build.targets.sdist]
 include = [
-    "nanobot/",
+    "nanoiqqi/",
     "bridge/",
     "README.md",
     "LICENSE",
 ]
 
 [tool.hatch.build.targets.wheel.force-include]
-"bridge" = "nanobot/bridge"
+"bridge" = "nanoiqqi/bridge"
 
 [tool.ruff]
 line-length = 100

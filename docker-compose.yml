@@ -3,16 +3,16 @@ x-common-config: &common-config
     context: .
     dockerfile: Dockerfile
   volumes:
-    - ~/.nanobot:/root/.nanobot
+    - ~/.nanoiqqi:/root/.nanoiqqi
 
 services:
-  nanobot-gateway:
-    container_name: nanobot-gateway
+  nanoiqqi-gateway:
+    container_name: nanoiqqi-gateway
     <<: *common-config
     command: ["gateway"]
     restart: unless-stopped
     environment:
-      - NANOBOT_BRAIN_OFFICE__URL=http://brain-office:8765
+      - NANOIQQI_BRAIN_OFFICE__URL=http://brain-office:8765
     ports:
       - 18790:18790
     deploy:
@@ -24,7 +24,7 @@ services:
           cpus: '0.25'
           memory: 256M
   
-  nanobot-cli:
+  nanoiqqi-cli:
     <<: *common-config
     profiles:
       - cli
@@ -32,7 +32,7 @@ services:
     stdin_open: true
     tty: true
     environment:
-      - NANOBOT_BRAIN_OFFICE__URL=http://brain-office:8765
+      - NANOIQQI_BRAIN_OFFICE__URL=http://brain-office:8765
 
   brain-office:
     build:

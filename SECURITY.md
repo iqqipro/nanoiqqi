@@ -2,10 +2,10 @@
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in nanobot, please report it by:
+If you discover a security vulnerability in **nanoiqqi**, please report it by:
 
-1. **DO NOT** open a public GitHub issue
-2. Create a private security advisory on GitHub or contact the repository maintainers (xubinrencs@gmail.com)
+1. **DO NOT** open a public GitHub issue.
+2. Create a private security advisory on GitHub or contact the repository maintainers: **contactiqqi@gmail.com**.
 3. Include:
    - Description of the vulnerability
    - Steps to reproduce
@@ -14,29 +14,28 @@ If you discover a security vulnerability in nanobot, please report it by:
 
 We aim to respond to security reports within 48 hours.
 
+---
+
 ## Security Best Practices
 
-### 1. API Key Management
+### 1. API Key and Secret Management
 
-**CRITICAL**: Never commit API keys to version control.
+**CRITICAL**: Never commit API keys or secrets to version control.
 
-```bash
-# ✅ Good: Store in config file with restricted permissions
-chmod 600 ~/.nanobot/config.json
-
-# ❌ Bad: Hardcoding keys in code or committing them
-```
-
-**Recommendations:**
-- Store API keys in `~/.nanobot/config.json` with file permissions set to `0600`
-- Consider using environment variables for sensitive keys
-- Use OS keyring/credential manager for production deployments
-- Rotate API keys regularly
-- Use separate API keys for development and production
+- Store secrets in `~/.nanoiqqi/config.json` with restricted file permissions:
+  ```bash
+  chmod 600 ~/.nanoiqqi/config.json
+  chmod 700 ~/.nanoiqqi
+  ```
+- Consider environment variables for sensitive keys where supported.
+- Rotate API keys regularly and use separate keys for development and production.
+- Config file path is defined in `nanoiqqi/config/loader.py` (default: `~/.nanoiqqi/config.json`).
 
 ### 2. Channel Access Control
 
-**IMPORTANT**: Always configure `allowFrom` lists for production use.
+**IMPORTANT**: Configure `allowFrom` for production so only allowed users can talk to the agent.
+
+In `~/.nanoiqqi/config.json`:
 
 ```json
 {
@@ -54,211 +53,158 @@ chmod 600 ~/.nanobot/config.json
 }
 ```
 
-**Security Notes:**
-- Empty `allowFrom` list will **ALLOW ALL** users (open by default for personal use)
-- Get your Telegram user ID from `@userinfobot`
-- Use full phone numbers with country code for WhatsApp
-- Review access logs regularly for unauthorized access attempts
+- **Empty `allowFrom`** means **allow all** (convenient for personal use; lock it down for production).
+- Channel configs and allowlists are in `nanoiqqi/config/schema.py` and enforced in `nanoiqqi/channels/base.py`.
 
-### 3. Shell Command Execution
+### 3. Shell Command Execution (`exec` tool)
 
-The `exec` tool can execute shell commands. While dangerous command patterns are blocked, you should:
+The `exec` tool (`nanoiqqi/agent/tools/shell.py`) runs shell commands. Safeguards in this repo:
 
-- ✅ Review all tool usage in agent logs
-- ✅ Understand what commands the agent is running
-- ✅ Use a dedicated user account with limited privileges
-- ✅ Never run nanobot as root
-- ❌ Don't disable security checks
-- ❌ Don't run on systems with sensitive data without careful review
+- **Timeout**: Configurable via `tools.exec.timeout` (default **60** seconds). Process is killed on timeout.
+- **Output truncation**: Command output is truncated at **10,000** characters.
+- **Blocked patterns** (deny list):
+  - `rm -r`, `rm -rf`, `rm -fr`
+  - `del /f`, `del /q`
+  - `rmdir /s`
+  - `format` (standalone)
+  - `mkfs`, `diskpart`
+  - `dd if=`
+  - Writes to `/dev/sd*`
+  - `shutdown`, `reboot`, `poweroff`
+  - Fork bomb pattern `:() { ... }; :`
+- **Optional workspace restriction**: When `tools.restrictToWorkspace` is `true`, execution is restricted to the workspace directory (see schema and loader).
 
-**Blocked patterns:**
-- `rm -rf /` - Root filesystem deletion
-- Fork bombs
-- Filesystem formatting (`mkfs.*`)
-- Raw disk writes
-- Other destructive operations
+**Recommendations:**
+
+- Run nanoiqqi as a **non-root**, dedicated user.
+- Review agent logs for tool usage.
+- Do not disable or weaken these checks on systems with sensitive data.
 
 ### 4. File System Access
 
-File operations have path traversal protection, but:
+File tools (`read_file`, `write_file`, `edit_file`, `list_dir`) in `nanoiqqi/agent/tools/filesystem.py` respect:
 
-- ✅ Run nanobot with a dedicated user account
-- ✅ Use filesystem permissions to protect sensitive directories
-- ✅ Regularly audit file operations in logs
-- ❌ Don't give unrestricted access to sensitive files
+- **`tools.restrictToWorkspace`**: When `true`, all file operations are limited to the workspace directory (config: `gateway.workspace`, default `~/.nanoiqqi/workspace`). This mitigates path traversal and access outside the intended directory.
 
-### 5. Network Security
+Set in config:
 
-**API Calls:**
-- All external API calls use HTTPS by default
-- Timeouts are configured to prevent hanging requests
-- Consider using a firewall to restrict outbound connections if needed
-
-**WhatsApp Bridge:**
-- The bridge binds to `127.0.0.1:3001` (localhost only, not accessible from external network)
-- Set `bridgeToken` in config to enable shared-secret authentication between Python and Node.js
-- Keep authentication data in `~/.nanobot/whatsapp-auth` secure (mode 0700)
-
-### 6. Dependency Security
-
-**Critical**: Keep dependencies updated!
-
-```bash
-# Check for vulnerable dependencies
-pip install pip-audit
-pip-audit
-
-# Update to latest secure versions
-pip install --upgrade nanobot-ai
+```json
+{
+  "tools": {
+    "restrictToWorkspace": true
+  }
+}
 ```
 
-For Node.js dependencies (WhatsApp bridge):
-```bash
-cd bridge
-npm audit
-npm audit fix
-```
+- Run with a dedicated user and use OS permissions to protect sensitive directories.
 
-**Important Notes:**
-- Keep `litellm` updated to the latest version for security fixes
-- We've updated `ws` to `>=8.17.1` to fix DoS vulnerability
-- Run `pip-audit` or `npm audit` regularly
-- Subscribe to security advisories for nanobot and its dependencies
+### 5. Network and External Services
+
+- **HTTPS**: External API calls use HTTPS (LiteLLM, OpenRouter, etc.).
+- **Timeouts**: HTTP clients use timeouts (e.g. web_fetch 30s, web_search 10s, exec 60s) to reduce hang risk.
+- **WhatsApp bridge**:
+  - The Node.js bridge connects to the Python process via WebSocket. Default URL is `ws://localhost:3001` (`channels.whatsapp.bridge_url`).
+  - Set `channels.whatsapp.bridge_token` in config and pass it as `BRIDGE_TOKEN` when starting the bridge so the bridge can authenticate (see `nanoiqqi/channels/whatsapp.py` and `nanoiqqi/cli/commands.py`).
+  - Bridge files are copied under `~/.nanoiqqi/bridge`; keep that directory and config permissions restrictive.
+
+### 6. Dependencies
+
+- Keep dependencies updated. The project uses **pip** (Python) and **npm** (bridge).
+- Audit dependencies periodically:
+
+  ```bash
+  pip install pip-audit
+  pip-audit
+
+  cd bridge
+  npm audit
+  npm audit fix
+  ```
+
+- Install from source: `pip install -e .` in the repo root. Do not rely on unpublished or untrusted packages.
 
 ### 7. Production Deployment
 
-For production use:
+- **Isolation**: Run in a container or VM when possible.
+- **User**: Run as a dedicated user, not root:
+  ```bash
+  sudo useradd -m -s /bin/bash nanoiqqi
+  sudo -u nanoiqqi nanoiqqi gateway
+  ```
+- **Permissions**:
+  ```bash
+  chmod 700 ~/.nanoiqqi
+  chmod 600 ~/.nanoiqqi/config.json
+  chmod 700 ~/.nanoiqqi/bridge
+  ```
+- **Config**: Set `tools.restrictToWorkspace: true` for production when appropriate.
+- **Rate limiting**: Rely on your LLM/API provider rate and spending limits; monitor usage.
 
-1. **Isolate the Environment**
-   ```bash
-   # Run in a container or VM
-   docker run --rm -it python:3.11
-   pip install nanobot-ai
-   ```
+### 8. Data Privacy
 
-2. **Use a Dedicated User**
-   ```bash
-   sudo useradd -m -s /bin/bash nanobot
-   sudo -u nanobot nanobot gateway
-   ```
+- **Logs** may contain user content or identifiers; protect log storage and retention.
+- **LLM providers** receive prompts and responses; review their privacy and data policies.
+- **Local state**: Session and workspace data under `~/.nanoiqqi` (and workspace path) should be protected with OS permissions.
+- **Config**: API keys and tokens are stored in plain text in `config.json`; restrict file access and consider a keyring for high-security environments.
 
-3. **Set Proper Permissions**
-   ```bash
-   chmod 700 ~/.nanobot
-   chmod 600 ~/.nanobot/config.json
-   chmod 700 ~/.nanobot/whatsapp-auth
-   ```
+### 9. Incident Response
 
-4. **Enable Logging**
-   ```bash
-   # Configure log monitoring
-   tail -f ~/.nanobot/logs/nanobot.log
-   ```
+If you suspect a security incident:
 
-5. **Use Rate Limiting**
-   - Configure rate limits on your API providers
-   - Monitor usage for anomalies
-   - Set spending limits on LLM APIs
+1. Revoke compromised API keys and tokens immediately.
+2. Review logs for unauthorized access or unexpected tool use.
+3. Check for unexpected file or config changes under `~/.nanoiqqi`.
+4. Rotate credentials and update to the latest nanoiqqi version.
+5. Report to maintainers (contactiqqi@gmail.com) if it affects the nanoiqqi project.
 
-6. **Regular Updates**
-   ```bash
-   # Check for updates weekly
-   pip install --upgrade nanobot-ai
-   ```
+---
 
-### 8. Development vs Production
+## Security-Relevant Features in This Repo
 
-**Development:**
-- Use separate API keys
-- Test with non-sensitive data
-- Enable verbose logging
-- Use a test Telegram bot
+| Feature | Location | Description |
+|--------|----------|-------------|
+| Path / workspace restriction | `config/schema.py`, `config/loader.py`, `agent/tools/filesystem.py`, `agent/tools/shell.py` | `tools.restrictToWorkspace` limits file and shell access to the workspace. |
+| Channel allowlist | `config/schema.py`, `channels/base.py` | `allowFrom` per channel; empty = allow all. |
+| Exec timeout | `config/schema.py` (`ExecToolConfig.timeout`), `agent/tools/shell.py` | Default 60s; configurable. |
+| Exec deny list | `agent/tools/shell.py` | Blocks dangerous command patterns. |
+| Exec output truncation | `agent/tools/shell.py` | 10,000 character limit. |
+| Bridge token | `config/schema.py` (`WhatsAppConfig.bridge_token`), `channels/whatsapp.py`, `cli/commands.py` | Optional shared secret for WhatsApp bridge. |
 
-**Production:**
-- Use dedicated API keys with spending limits
-- Restrict file system access
-- Enable audit logging
-- Regular security reviews
-- Monitor for unusual activity
-
-### 9. Data Privacy
-
-- **Logs may contain sensitive information** - secure log files appropriately
-- **LLM providers see your prompts** - review their privacy policies
-- **Chat history is stored locally** - protect the `~/.nanobot` directory
-- **API keys are in plain text** - use OS keyring for production
-
-### 10. Incident Response
-
-If you suspect a security breach:
-
-1. **Immediately revoke compromised API keys**
-2. **Review logs for unauthorized access**
-   ```bash
-   grep "Access denied" ~/.nanobot/logs/nanobot.log
-   ```
-3. **Check for unexpected file modifications**
-4. **Rotate all credentials**
-5. **Update to latest version**
-6. **Report the incident** to maintainers
-
-## Security Features
-
-### Built-in Security Controls
-
-✅ **Input Validation**
-- Path traversal protection on file operations
-- Dangerous command pattern detection
-- Input length limits on HTTP requests
-
-✅ **Authentication**
-- Allow-list based access control
-- Failed authentication attempt logging
-- Open by default (configure allowFrom for production use)
-
-✅ **Resource Protection**
-- Command execution timeouts (60s default)
-- Output truncation (10KB limit)
-- HTTP request timeouts (10-30s)
-
-✅ **Secure Communication**
-- HTTPS for all external API calls
-- TLS for Telegram API
-- WhatsApp bridge: localhost-only binding + optional token auth
+---
 
 ## Known Limitations
 
-⚠️ **Current Security Limitations:**
+- **No built-in rate limiting** for user messages; add at the channel or gateway layer if needed.
+- **Config and secrets** are stored in plain text; use OS permissions and optionally a keyring.
+- **No automatic session expiry**; implement cleanup or retention policies if required.
+- **Exec filtering** is pattern-based and may not cover every dangerous command; run with least privilege.
+- **Security event logging** is limited; enhance logging or integrate with your SIEM if needed.
 
-1. **No Rate Limiting** - Users can send unlimited messages (add your own if needed)
-2. **Plain Text Config** - API keys stored in plain text (use keyring for production)
-3. **No Session Management** - No automatic session expiry
-4. **Limited Command Filtering** - Only blocks obvious dangerous patterns
-5. **No Audit Trail** - Limited security event logging (enhance as needed)
+---
 
-## Security Checklist
+## Security Checklist Before Deployment
 
-Before deploying nanobot:
+- [ ] API keys and tokens not in code or public repos
+- [ ] `~/.nanoiqqi/config.json` permissions set to `0600`
+- [ ] `allowFrom` configured for all enabled channels in production
+- [ ] Process runs as non-root user
+- [ ] `tools.restrictToWorkspace` set to `true` when appropriate
+- [ ] Dependencies reviewed and updated (`pip-audit`, `npm audit`)
+- [ ] Logs and `~/.nanoiqqi` directory protected and monitored
+- [ ] API provider rate/spending limits and monitoring in place
+- [ ] Custom skills and tools reviewed for security impact
 
-- [ ] API keys stored securely (not in code)
-- [ ] Config file permissions set to 0600
-- [ ] `allowFrom` lists configured for all channels
-- [ ] Running as non-root user
-- [ ] File system permissions properly restricted
-- [ ] Dependencies updated to latest secure versions
-- [ ] Logs monitored for security events
-- [ ] Rate limits configured on API providers
-- [ ] Backup and disaster recovery plan in place
-- [ ] Security review of custom skills/tools
+---
 
 ## Updates
 
-**Last Updated**: 2026-02-03
+**Last updated**: 2026-03-12
 
-For the latest security updates and announcements, check:
-- GitHub Security Advisories: https://github.com/HKUDS/nanobot/security/advisories
-- Release Notes: https://github.com/HKUDS/nanobot/releases
+For security advisories and releases:
+
+- GitHub: [iqqipro/nanoiqqi](https://github.com/iqqipro/nanoiqqi)
+- Security advisories: https://github.com/iqqipro/nanoiqqi/security/advisories
 
 ## License
 
-See LICENSE file for details.
+See the LICENSE file in the repository root.
