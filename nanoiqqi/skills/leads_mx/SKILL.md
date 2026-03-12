@@ -1,6 +1,6 @@
 ---
 name: leads_mx
-description: Buscar establecimientos en México con la API DENUE (INEGI). LeadsMx con 7 métodos (buscar, ficha, nombre, buscarEntidad, buscarAreaAct, buscarAreaActEstr, cuantificar). Siempre envía method; usa "0"/"00" en lugar de cadenas vacías. Paginación por defecto 25 registros.
+description: Search establishments in Mexico via DENUE (INEGI) API. LeadsMx offers 7 methods (buscar, ficha, nombre, buscarEntidad, buscarAreaAct, buscarAreaActEstr, cuantificar). Always send method; use "0"/"00" instead of empty strings. Default pagination 25 records.
 metadata: {"nanoiqqi":{"emoji":"📍","always":true,"requires":{"tools":["LeadsMx"]}}}
 ---
 
