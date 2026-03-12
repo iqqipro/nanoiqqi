@@ -1,6 +1,6 @@
 ---
 name: leads_mx_localidades
-description: Guía para buscar establecimientos por localidad en México con la tool LeadsMx. Usar cuando el usuario pida buscar en una localidad, colonia o zona específica.
+description: Guide to search establishments by locality in Mexico with the LeadsMx tool. Use when the user asks to search in a specific locality, neighborhood, or area.
 metadata: {"nanoiqqi":{"emoji":"📌","requires":{"tools":["LeadsMx"]}}}
 ---
 
