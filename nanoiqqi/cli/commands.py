@@ -12,6 +12,7 @@ import sys
 import typer
 from rich.console import Console
 from rich.markdown import Markdown
+from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
@@ -45,12 +46,18 @@ _YELLOW_BOLT = "#f0fc08"
 _BLACK = "#000000"
 
 _BANNER = r"""
-  ██╗ ██████╗  ██████╗ ██╗██████╗  ██████╗ ████████╗
-  ██║██╔═══██╗██╔═══██╗██║██╔══██╗██╔═══██╗╚══██╔══╝
-  ██║██║   ██║██║   ██║██║██████╔╝██║   ██║   ██║
-  ██║██║▄▄ ██║██║▄▄ ██║██║██╔══██╗██║   ██║   ██║
-  ██║╚██████╔╝╚██████╔╝██║██████╔╝╚██████╔╝   ██║
-  ╚═╝ ╚══▀▀═╝  ╚══▀▀═╝ ╚═╝╚═════╝  ╚═════╝    ╚═╝
+  ██╗ ██████╗  ██████╗ ██╗
+  ██║██╔═══██╗██╔═══██╗██║
+  ██║██║   ██║██║   ██║██║
+  ██║██║▄▄ ██║██║▄▄ ██║██║
+  ██║╚██████╔╝╚██████╔╝██║    
+  ╚═╝ ╚══▀▀═╝  ╚══▀▀═╝ ╚═╝  
+███╗   ██╗ █████╗ ███╗   ██╗ ██████╗ 
+███║   ██║██╔══██╗████╗  ██║██╔═══██╗
+██╔██╗ ██║███████║██╔██╗ ██║██║   ██║
+██║╚██╗██║██╔══██║██║╚██╗██║██║   ██║
+██║ ╚████║██║  ██║██║ ╚████║╚██████╔╝
+╚═╝  ╚═══╝╚═╝  ╚═╝╚═╝  ╚═══╝ ╚═════╝
 """
 
 _WELCOME_BOX = r"""
@@ -249,42 +256,63 @@ def onboard():
     from nanoiqqi.config.loader import get_config_path, load_config, save_config
     from nanoiqqi.config.schema import Config
     from nanoiqqi.utils.helpers import get_workspace_path
-    
+
     config_path = get_config_path()
-    
+    console.print()
+    console.print(Panel.fit(
+        "[bold]Setup[/bold] — config, workspace, and skills",
+        border_style=_GREEN_BOLT,
+        padding=(0, 1),
+    ))
+    console.print()
+
+    # Step 1: Config
     if config_path.exists():
-        console.print(f"[bold {_GREEN_BOLT}]Config already exists at {config_path}[/bold {_GREEN_BOLT}]")
-        console.print("  [bold]y[/bold] = overwrite with defaults (existing values will be lost)")
-        console.print("  [bold]N[/bold] = refresh config, keeping existing values and adding new fields")
-        if typer.confirm("Overwrite?"):
+        console.print(f"[bold {_YELLOW_BOLT}]1. Config[/bold {_YELLOW_BOLT}]  [dim]Already exists: {config_path}[/dim]")
+        console.print("   [bold]y[/bold] = overwrite with defaults (existing values will be lost)")
+        console.print("   [bold]N[/bold] = refresh only (keep your keys and add new fields)")
+        if typer.confirm("   Overwrite?", default=False):
             config = Config()
             save_config(config)
-            console.print(f"[bold {_GREEN_BOLT}]✓[/bold {_GREEN_BOLT}] Config reset to defaults at {config_path}")
+            console.print(f"   [bold {_GREEN_BOLT}]✓[/bold {_GREEN_BOLT}] Config reset to defaults")
         else:
             config = load_config()
             save_config(config)
-            console.print(f"[bold {_GREEN_BOLT}]✓[/bold {_GREEN_BOLT}] Config refreshed at {config_path} (existing values preserved)")
+            console.print(f"   [bold {_GREEN_BOLT}]✓[/bold {_GREEN_BOLT}] Config refreshed (values preserved)")
     else:
+        console.print(f"[bold {_YELLOW_BOLT}]1. Config[/bold {_YELLOW_BOLT}]")
         save_config(Config())
-        console.print(f"[bold {_GREEN_BOLT}]✓[/bold {_GREEN_BOLT}] Created config at {config_path}")
-    
-    # Create workspace
+        config = load_config()
+        console.print(f"   [bold {_GREEN_BOLT}]✓[/bold {_GREEN_BOLT}] Created {config_path}")
+    console.print()
+
+    # Step 2: Workspace
     workspace = get_workspace_path()
-    
+    console.print(f"[bold {_YELLOW_BOLT}]2. Workspace[/bold {_YELLOW_BOLT}]  [dim]{workspace}[/dim]")
     if not workspace.exists():
         workspace.mkdir(parents=True, exist_ok=True)
-        console.print(f"[bold {_GREEN_BOLT}]✓[/bold {_GREEN_BOLT}] Created workspace at {workspace}")
-    
-    # Create default bootstrap files
+        console.print(f"   [bold {_GREEN_BOLT}]✓[/bold {_GREEN_BOLT}] Created")
     _create_workspace_templates(workspace)
-    
+    console.print()
+
+    # Step 3: Skills
+    _onboard_prompt_skills(workspace, config)
+    console.print()
+
+    # Done
     _print_banner()
-    console.print(_styled("nanoiqqi is ready!"))
-    console.print("\nNext steps:")
-    console.print(f"  1. Add your API key to [bold {_GREEN_BOLT}]~/.nanoiqqi/config.json[/bold {_GREEN_BOLT}]")
-    console.print("     Get one at: https://openrouter.ai/keys")
-    console.print(f"  2. Chat: [bold {_GREEN_BOLT}]nanoiqqi agent -m \"Hello!\"[/bold {_GREEN_BOLT}]")
-    console.print("\n[dim]Want Telegram/WhatsApp? See the docs.[/dim]")
+    console.print(_styled("Setup complete!"))
+    console.print()
+    console.print(Panel(
+        "[bold]Next steps[/bold]\n\n"
+        f"1. Add your API key to [bold {_GREEN_BOLT}]~/.nanoiqqi/config.json[/bold {_GREEN_BOLT}]\n"
+        "   (e.g. [dim]providers.openrouter.apiKey[/dim] — get one at https://openrouter.ai/keys)\n\n"
+        f"2. Chat: [bold {_GREEN_BOLT}]nanoiqqi agent -m \"Hello!\"[/bold {_GREEN_BOLT}]\n\n"
+        "[dim]Channels (Telegram, WhatsApp, etc.): see README.[/dim]",
+        border_style=_GREEN_BOLT,
+        padding=(1, 2),
+    ))
+    console.print()
 
 
 
@@ -368,6 +396,50 @@ This file stores important information that should persist across sessions.
     # Create skills directory for custom user skills
     skills_dir = workspace / "skills"
     skills_dir.mkdir(exist_ok=True)
+
+
+def _onboard_prompt_skills(workspace: Path, config: Config) -> None:
+    """Ask user which skills to enable and save to config."""
+    from nanoiqqi.config.loader import save_config
+    from nanoiqqi.agent.skills import SkillsLoader
+
+    loader = SkillsLoader(workspace)
+    skills = loader.list_skills(filter_unavailable=False)
+    if not skills:
+        console.print(f"[bold {_YELLOW_BOLT}]3. Skills[/bold {_YELLOW_BOLT}]  [dim]No skills found; skip.[/dim]")
+        return
+
+    console.print(f"[bold {_YELLOW_BOLT}]3. Skills[/bold {_YELLOW_BOLT}]  [dim]Choose skills to load by default (loaded into every conversation).[/dim]")
+    table = Table(show_header=True, header_style=f"bold {_GREEN_BOLT}", border_style="dim")
+    table.add_column("#", style="dim", width=4)
+    table.add_column("Skill", style=_GREEN_BOLT)
+    table.add_column("Description", max_width=56, overflow="ellipsis")
+    for i, s in enumerate(skills, 1):
+        desc = loader._get_skill_description(s["name"]) or s["name"]
+        table.add_row(str(i), s["name"], desc)
+    console.print(table)
+    console.print()
+    raw = typer.prompt(
+        "   Enter numbers to enable (e.g. 1,3,5) or Enter to skip",
+        default="",
+        show_default=False,
+    )
+    raw = raw.strip()
+    if not raw:
+        console.print("   [dim]No skills selected.[/dim]")
+        return
+    chosen: list[str] = []
+    for part in raw.replace(",", " ").split():
+        part = part.strip()
+        if not part.isdigit():
+            continue
+        idx = int(part)
+        if 1 <= idx <= len(skills):
+            chosen.append(skills[idx - 1]["name"])
+    chosen = list(dict.fromkeys(chosen))
+    config.agents.defaults.always_skills = chosen
+    save_config(config)
+    console.print(f"   [bold {_GREEN_BOLT}]✓[/bold {_GREEN_BOLT}] Enabled: {', '.join(chosen) or 'none'}")
 
 
 def _make_provider(config: Config):
@@ -551,6 +623,7 @@ def gateway(
         subagent_model=(config.agents.defaults.subagent_model or "").strip() or None,
         leads_mx_token=config.tools.leads_mx.token or None,
         activity_sink=_make_activity_sink(config),
+        always_skills=config.agents.defaults.always_skills or [],
     )
 
     # Set cron callback (needs agent)
@@ -692,6 +765,7 @@ def agent(
         subagent_model=(config.agents.defaults.subagent_model or "").strip() or None,
         leads_mx_token=config.tools.leads_mx.token or None,
         activity_sink=_make_activity_sink(config),
+        always_skills=config.agents.defaults.always_skills or [],
     )
     brain_office_bridge = _make_brain_office_bridge(bus, config, agent_loop)
 
@@ -1220,6 +1294,7 @@ def cron_run(
         subagent_model=(config.agents.defaults.subagent_model or "").strip() or None,
         leads_mx_token=config.tools.leads_mx.token or None,
         activity_sink=_make_activity_sink(config),
+        always_skills=config.agents.defaults.always_skills or [],
     )
 
     store_path = get_data_dir() / "cron" / "jobs.json"
