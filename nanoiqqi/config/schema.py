@@ -194,6 +194,10 @@ class AgentDefaults(Base):
     temperature: float = 0.7
     max_tool_iterations: int = 20
     memory_window: int = 50
+    always_skills: list[str] = Field(
+        default_factory=list,
+        description="Skill names to always load into the agent context (chosen during onboard or in config).",
+    )
 
 
 class AgentsConfig(Base):
