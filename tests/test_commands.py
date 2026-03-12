@@ -5,11 +5,11 @@ from unittest.mock import patch
 import pytest
 from typer.testing import CliRunner
 
-from nanobot.cli.commands import app
-from nanobot.config.schema import Config
-from nanobot.providers.litellm_provider import LiteLLMProvider
-from nanobot.providers.openai_codex_provider import _strip_model_prefix
-from nanobot.providers.registry import find_by_model
+from nanoiqqi.cli.commands import app
+from nanoiqqi.config.schema import Config
+from nanoiqqi.providers.litellm_provider import LiteLLMProvider
+from nanoiqqi.providers.openai_codex_provider import _strip_model_prefix
+from nanoiqqi.providers.registry import find_by_model
 
 runner = CliRunner()
 
@@ -17,10 +17,10 @@ runner = CliRunner()
 @pytest.fixture
 def mock_paths():
     """Mock config/workspace paths for test isolation."""
-    with patch("nanobot.config.loader.get_config_path") as mock_cp, \
-         patch("nanobot.config.loader.save_config") as mock_sc, \
-         patch("nanobot.config.loader.load_config") as mock_lc, \
-         patch("nanobot.utils.helpers.get_workspace_path") as mock_ws:
+    with patch("nanoiqqi.config.loader.get_config_path") as mock_cp, \
+         patch("nanoiqqi.config.loader.save_config") as mock_sc, \
+         patch("nanoiqqi.config.loader.load_config") as mock_lc, \
+         patch("nanoiqqi.utils.helpers.get_workspace_path") as mock_ws:
 
         base_dir = Path("./test_onboard_data")
         if base_dir.exists():
@@ -49,7 +49,7 @@ def test_onboard_fresh_install(mock_paths):
     assert result.exit_code == 0
     assert "Created config" in result.stdout
     assert "Created workspace" in result.stdout
-    assert "iqqibot is ready" in result.stdout
+    assert "nanoiqqi is ready" in result.stdout
     assert config_file.exists()
     assert (workspace_dir / "AGENTS.md").exists()
     assert (workspace_dir / "memory" / "MEMORY.md").exists()
@@ -132,7 +132,7 @@ def test_openai_codex_strip_prefix_supports_hyphen_and_underscore():
 
 def test_agent_defaults_has_subagent_model_empty_by_default():
     """subagent_model is optional; empty means subagents use main model (backward compatible)."""
-    from nanobot.config.schema import AgentDefaults
+    from nanoiqqi.config.schema import AgentDefaults
     defaults = AgentDefaults()
     assert hasattr(defaults, "subagent_model")
     assert defaults.subagent_model == ""
@@ -140,6 +140,6 @@ def test_agent_defaults_has_subagent_model_empty_by_default():
 
 def test_agent_defaults_subagent_model_accepts_value():
     """subagent_model can be set for dedicated subagent model when not using smart router."""
-    from nanobot.config.schema import AgentDefaults
+    from nanoiqqi.config.schema import AgentDefaults
     defaults = AgentDefaults(subagent_model="openrouter/google/gemini-2.0-flash-001")
     assert defaults.subagent_model == "openrouter/google/gemini-2.0-flash-001"
