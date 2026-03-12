@@ -67,7 +67,7 @@ nanoiqqi onboard
 
 This command:
 - Creates `~/.nanoiqqi/config.json`
-- Creates a workspace directory with `AGENTS.md`, `TOOLS.md`, `memory/`, `HEARTBEAT.md`
+- Creates a workspace directory with `AGENTS.md`, `SOUL.md`, `USER.md`, `memory/`, and `skills/`
 
 ### 2. Configure a provider
 
@@ -282,6 +282,8 @@ Skill system lives under `nanoiqqi/skills/` and follows the **OpenClaw‑style**
 - **`tmux`** – remote tmux control for ops workflows
 - **`clawhub`** – discover and install public skills from ClawHub
 - **`skill-creator`** – scaffold new skills directly from within the agent
+- **`memory`** – long‑term memory and history
+- **`cron`** – scheduled reminders and cron-backed jobs
 
 Skills are loaded dynamically by `nanoiqqi/agent/skills.py` and surfaced to the LLM via system context, so you can iterate on them without restarting the entire stack.
 
@@ -390,7 +392,8 @@ High‑level structure:
   "agents": {
     "defaults": {
       "model": "openrouter/...",
-      "temperature": 0.7
+      "temperature": 0.7,
+      "always_skills": []
     }
   },
   "channels": {
