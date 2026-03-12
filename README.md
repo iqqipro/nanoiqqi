@@ -1,581 +1,474 @@
 <div align="center">
-  <img src="nanobot_logo.png" alt="nanobot" width="500">
-  <h1>nanobot: Ultra-Lightweight Personal AI Assistant</h1>
+  <img src="nanoiqqi_logo.png" alt="nanoiqqi logo" width="420">
+  <h1>nanoiqqi: Ultra‑Lightweight Multi‑Agent Assistant</h1>
   <p>
-    <a href="https://pypi.org/project/nanobot-ai/"><img src="https://img.shields.io/pypi/v/nanobot-ai" alt="PyPI"></a>
-    <a href="https://pepy.tech/project/nanobot-ai"><img src="https://static.pepy.tech/badge/nanobot-ai" alt="Downloads"></a>
-    <img src="https://img.shields.io/badge/python-≥3.11-blue" alt="Python">
+    <img src="https://img.shields.io/badge/python-%E2%89%A53.11-blue" alt="Python">
     <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
-    <a href="./COMMUNICATION.md"><img src="https://img.shields.io/badge/Feishu-Group-E9DBFC?style=flat&logo=feishu&logoColor=white" alt="Feishu"></a>
-    <a href="./COMMUNICATION.md"><img src="https://img.shields.io/badge/WeChat-Group-C5EAB4?style=flat&logo=wechat&logoColor=white" alt="WeChat"></a>
-    <a href="https://discord.gg/MnCvHqpUGB"><img src="https://img.shields.io/badge/Discord-Community-5865F2?style=flat&logo=discord&logoColor=white" alt="Discord"></a>
+    <a href="https://github.com/iqqipro/nanoiqqi"><img src="https://img.shields.io/badge/GitHub-iqqipro%2Fnanoiqqi-black" alt="GitHub"></a>
   </p>
 </div>
 
 
- **nanobot** is an **ultra-lightweight** personal AI assistant inspired by [OpenClaw](https://github.com/openclaw/openclaw) 
+**nanoiqqi** is an **ultra‑lightweight agent framework** built around:
 
-⚡️ Delivers core agent functionality in just **~4,000** lines of code — **99% smaller** than Clawdbot's 430k+ lines.
+- A small, readable **agent loop** (`nanoiqqi/agent/loop.py`)
+- A **smart router** (`nanoiqqi/providers/smart_router.py`) that picks models based on capabilities, cost and latency
+- **Background subagents** (`nanoiqqi/agent/subagent.py`) for long‑running tasks
+- A built‑in **Brain Office / IQQI Office UI** (`brain-office/`) that visualizes activity in real time
+- Native **skills and tools**, including **LeadsMx** for Mexico DENUE / INEGI
 
-📏 Real-time line count: **3,806 lines** (run `bash core_agent_lines.sh` to verify anytime)
+The core agent code (loop, tools, routing, subagents) is kept intentionally compact so it is:
 
-## 📢 News
+- 🪶 **Easy to audit and modify**
+- 🔬 **Research‑friendly**
+- ⚡ **Fast to start and iterate on**
 
-- **2026-02-21** 🎉 Released **v0.1.4.post1** — new providers, media support across channels, and major stability improvements. See [release notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.4.post1) for details.
-- **2026-02-20** 🐦 Feishu now receives multimodal files from users. More reliable memory under the hood.
-- **2026-02-19** ✨ Slack now sends files, Discord splits long messages, and subagents work in CLI mode.
-- **2026-02-18** ⚡️ nanobot now supports VolcEngine, MCP custom auth headers, and Anthropic prompt caching.
-- **2026-02-17** 🎉 Released **v0.1.4** — MCP support, progress streaming, new providers, and multiple channel improvements. Please see [release notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.4) for details.
-- **2026-02-16** 🦞 nanobot now integrates a [ClawHub](https://clawhub.ai) skill — search and install public agent skills.
-- **2026-02-15** 🔑 nanobot now supports OpenAI Codex provider with OAuth login support.
-- **2026-02-14** 🔌 nanobot now supports MCP! See [MCP section](#mcp-model-context-protocol) for details.
-- **2026-02-13** 🎉 Released **v0.1.3.post7** — includes security hardening and multiple improvements. **Please upgrade to the latest version to address security issues**. See [release notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.3.post7) for more details.
-- **2026-02-12** 🧠 Redesigned memory system — Less code, more reliable. Join the [discussion](https://github.com/HKUDS/nanobot/discussions/566) about it!
-- **2026-02-11** ✨ Enhanced CLI experience and added MiniMax support!
+---
 
-<details>
-<summary>Earlier news</summary>
+### IQQI Office UI
 
-- **2026-02-10** 🎉 Released **v0.1.3.post6** with improvements! Check the updates [notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.3.post6) and our [roadmap](https://github.com/HKUDS/nanobot/discussions/431).
-- **2026-02-09** 💬 Added Slack, Email, and QQ support — nanobot now supports multiple chat platforms!
-- **2026-02-08** 🔧 Refactored Providers—adding a new LLM provider now takes just 2 simple steps! Check [here](#providers).
-- **2026-02-07** 🚀 Released **v0.1.3.post5** with Qwen support & several key improvements! Check [here](https://github.com/HKUDS/nanobot/releases/tag/v0.1.3.post5) for details.
-- **2026-02-06** ✨ Added Moonshot/Kimi provider, Discord integration, and enhanced security hardening!
-- **2026-02-05** ✨ Added Feishu channel, DeepSeek provider, and enhanced scheduled tasks support!
-- **2026-02-04** 🚀 Released **v0.1.3.post4** with multi-provider & Docker support! Check [here](https://github.com/HKUDS/nanobot/releases/tag/v0.1.3.post4) for details.
-- **2026-02-03** ⚡ Integrated vLLM for local LLM support and improved natural language task scheduling!
-- **2026-02-02** 🎉 nanobot officially launched! Welcome to try nanobot!
+<div align="center">
+  <img src="iqqioffice.png" alt="IQQI Office UI" width="800">
+  <p><em>Pixel‑style control room for nanoiqqi – live view of tools, subagents, and activity.</em></p>
+</div>
 
-</details>
-
-## Key Features of nanobot:
-
-🪶 **Ultra-Lightweight**: Just ~4,000 lines of core agent code — 99% smaller than Clawdbot.
-
-🔬 **Research-Ready**: Clean, readable code that's easy to understand, modify, and extend for research.
-
-⚡️ **Lightning Fast**: Minimal footprint means faster startup, lower resource usage, and quicker iterations.
-
-💎 **Easy-to-Use**: One-click to deploy and you're ready to go.
-
-## 🏗️ Architecture
-
-<p align="center">
-  <img src="nanobot_arch.png" alt="nanobot architecture" width="800">
-</p>
-
-## ✨ Features
-
-<table align="center">
-  <tr align="center">
-    <th><p align="center">📈 24/7 Real-Time Market Analysis</p></th>
-    <th><p align="center">🚀 Full-Stack Software Engineer</p></th>
-    <th><p align="center">📅 Smart Daily Routine Manager</p></th>
-    <th><p align="center">📚 Personal Knowledge Assistant</p></th>
-  </tr>
-  <tr>
-    <td align="center"><p align="center"><img src="case/search.gif" width="180" height="400"></p></td>
-    <td align="center"><p align="center"><img src="case/code.gif" width="180" height="400"></p></td>
-    <td align="center"><p align="center"><img src="case/scedule.gif" width="180" height="400"></p></td>
-    <td align="center"><p align="center"><img src="case/memory.gif" width="180" height="400"></p></td>
-  </tr>
-  <tr>
-    <td align="center">Discovery • Insights • Trends</td>
-    <td align="center">Develop • Deploy • Scale</td>
-    <td align="center">Schedule • Automate • Organize</td>
-    <td align="center">Learn • Memory • Reasoning</td>
-  </tr>
-</table>
+---
 
 ## 📦 Install
 
-**Install from source** (latest features, recommended for development)
+**From source (recommended for development)**
 
 ```bash
-git clone https://github.com/HKUDS/nanobot.git
-cd nanobot
+git clone https://github.com/iqqipro/nanoiqqi.git
+cd nanoiqqi
 pip install -e .
 ```
 
-**Install with [uv](https://github.com/astral-sh/uv)** (stable, fast)
+**With [uv](https://github.com/astral-sh/uv)** (tool install, if you publish it locally)
 
 ```bash
-uv tool install nanobot-ai
+uv tool install nanoiqqi
 ```
 
-**Install from PyPI** (stable)
+nanoiqqi requires **Python ≥ 3.11**.
 
-```bash
-pip install nanobot-ai
-```
+---
 
 ## 🚀 Quick Start
 
-> [!TIP]
-> Set your API key in `~/.nanobot/config.json`.
-> Get API keys: [OpenRouter](https://openrouter.ai/keys) (Global) · [Brave Search](https://brave.com/search/api/) (optional, for web search)
+> **Config path**: `~/.nanoiqqi/config.json`  
+> You can reuse Claude Desktop / Cursor MCP config snippets directly.
 
-**1. Initialize**
+### 1. Onboard
 
 ```bash
-nanobot onboard
+nanoiqqi onboard
 ```
 
-**2. Configure** (`~/.nanobot/config.json`)
+This command:
+- Creates `~/.nanoiqqi/config.json`
+- Creates a workspace directory with `AGENTS.md`, `TOOLS.md`, `memory/`, `HEARTBEAT.md`
 
-Add or merge these **two parts** into your config (other options have defaults).
+### 2. Configure a provider
 
-*Set your API key* (e.g. OpenRouter, recommended for global users):
+Minimal example with **OpenRouter**:
+
 ```json
 {
   "providers": {
     "openrouter": {
-      "apiKey": "sk-or-v1-xxx"
+      "apiKey": "sk-or-v1-..."
     }
-  }
-}
-```
-
-*Set your model*:
-```json
-{
+  },
   "agents": {
     "defaults": {
-      "model": "anthropic/claude-opus-4-5"
+      "model": "anthropic/claude-3.7-sonnet"
     }
   }
 }
 ```
 
-**3. Chat**
-
-```bash
-nanobot agent
-```
-
-That's it! You have a working AI assistant in 2 minutes.
-
-## 💬 Chat Apps
-
-Connect nanobot to your favorite chat platform.
-
-| Channel | What you need |
-|---------|---------------|
-| **Telegram** | Bot token from @BotFather |
-| **Discord** | Bot token + Message Content intent |
-| **WhatsApp** | QR code scan |
-| **Feishu** | App ID + App Secret |
-| **Mochat** | Claw token (auto-setup available) |
-| **DingTalk** | App Key + App Secret |
-| **Slack** | Bot token + App-Level token |
-| **Email** | IMAP/SMTP credentials |
-| **QQ** | App ID + App Secret |
-
-<details>
-<summary><b>Telegram</b> (Recommended)</summary>
-
-**1. Create a bot**
-- Open Telegram, search `@BotFather`
-- Send `/newbot`, follow prompts
-- Copy the token
-
-**2. Configure**
+For a local vLLM server:
 
 ```json
 {
-  "channels": {
-    "telegram": {
-      "enabled": true,
-      "token": "YOUR_BOT_TOKEN",
-      "allowFrom": ["YOUR_USER_ID"]
+  "providers": {
+    "vllm": {
+      "apiKey": "dummy",
+      "apiBase": "http://localhost:8000/v1"
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": "meta-llama/Meta-Llama-3.1-8B-Instruct"
     }
   }
 }
 ```
 
-> You can find your **User ID** in Telegram settings. It is shown as `@yourUserId`.
-> Copy this value **without the `@` symbol** and paste it into the config file.
-
-
-**3. Run**
+### 3. Chat from CLI
 
 ```bash
-nanobot gateway
+nanoiqqi agent
 ```
 
-</details>
-
-<details>
-<summary><b>Mochat (Claw IM)</b></summary>
-
-Uses **Socket.IO WebSocket** by default, with HTTP polling fallback.
-
-**1. Ask nanobot to set up Mochat for you**
-
-Simply send this message to nanobot (replace `xxx@xxx` with your real email):
-
-```
-Read https://raw.githubusercontent.com/HKUDS/MoChat/refs/heads/main/skills/nanobot/skill.md and register on MoChat. My Email account is xxx@xxx Bind me as your owner and DM me on MoChat.
-```
-
-nanobot will automatically register, configure `~/.nanobot/config.json`, and connect to Mochat.
-
-**2. Restart gateway**
+or
 
 ```bash
-nanobot gateway
+nanoiqqi agent -m "Give me a one‑paragraph status update on IQQI."
 ```
 
-That's it — nanobot handles the rest!
+---
 
-<br>
+## 🧠 What nanoiqqi Provides
 
-<details>
-<summary>Manual configuration (advanced)</summary>
+- **Workspace‑driven behavior**: `workspace/AGENTS.md` and `workspace/TOOLS.md` define high‑level agent and tool instructions.
+- **Integrated smart router**: A single `SmartRouter` class handles main‑agent and subagent routing, scoring models by **quality, cost, latency, reliability and structure** using capability metadata.
+- **First‑class subagents**: `SubagentManager` plus the `spawn` tool let the LLM offload complex tasks to focused background workers.
+- **Real‑time office UI**: Every tool run, turn, and subagent lifecycle emits **activity events** to the Brain Office backend, which can be visualized with `iqqioffice.png` and the app in `brain-office/`.
+- **LeadsMx as a native skill**: When configured, `LeadsMx` exposes the DENUE/INEGI directory via a rich Spanish‑language skill (`nanoiqqi/skills/leads_mx/SKILL.md`) with strict anti‑hallucination rules.
 
-If you prefer to configure manually, add the following to `~/.nanobot/config.json`:
+---
 
-> Keep `claw_token` private. It should only be sent in `X-Claw-Token` header to your Mochat API endpoint.
+## 🏗️ Architecture (High Level)
+
+### Agent loop
+
+The core engine lives in `nanoiqqi/agent/loop.py`:
+
+- **Input**: `InboundMessage` (CLI, Telegram, Slack, WhatsApp, Feishu, Email, QQ, DingTalk, Mochat, etc.)
+- **Context**: built via `ContextBuilder` (history, memory, skills, channel metadata)
+- **LLM call**: uses an `LLMProvider` – usually `SmartRouter` on top of OpenRouter or vLLM
+- **Tools**: executed via `ToolRegistry` (filesystem, shell, web, LeadsMx, MCP, spawn, cron…)
+- **Subagents**: delegated to `SubagentManager` when the `spawn` tool is called
+- **Output**: `OutboundMessage` plus media (images generated into the workspace)
+
+Memory is persisted under the workspace directory using `MemoryStore`, and can be consolidated automatically when conversations grow long.
+
+### Smart Router
+
+The smart router (`nanoiqqi/providers/smart_router.py`) provides a **five‑stage pipeline**:
+
+1. **Request requirements**: detects tool‑calling, vision, min context length, and estimates input/output tokens.
+2. **Hard gates**: filters candidate models to those that support the required features.
+3. **Optional judge**: an internal “judge” model classifies each request as  
+   `complexity: <simple|medium|complex>, domain: <code|general|math|agentic|unknown>`.
+4. **Score + select**: scores models using:
+   - Fit (including “preferred model” hints)
+   - Quality (domain‑aware)
+   - Cost (per‑request estimate when pricing is known)
+   - Latency (from router metrics or AA ttft)
+   - Reliability and structure (tool‑calling support)
+5. **Execute with fallback + learning**: tries primary then provider‑diverse fallbacks, marking invalid models and updating metrics.
+
+For **subagents**, the same router is used with `routing_profile="subagent"`, focusing on:
+
+- Enforcing a **minimum agentic capability** based on task complexity  
+- Picking a **cheap but good‑enough** model chain (no metrics recording)
+
+---
+
+## 🤖 Subagents: Background Workers
+
+nanoiqqi’s subagent system (`nanoiqqi/agent/subagent.py`) lets the main agent say:
+
+> “Handle this complex task in the background, and summarize the result for the user later.”
+
+Key details:
+
+- Each subagent:
+  - Gets its **own focused system prompt** (time, rules, allowed tools, workspace path)
+  - Shares the same **LLM provider** (usually `SmartRouter`) but has isolated message history
+  - Has a limited **max iterations** and automatic history trimming at ~80k tokens
+- Subagents can use **shared tools only** (filesystem, shell, web, image generation, LeadsMx, etc.)  
+  – no `message` or `spawn` inside subagents.
+- When a subagent finishes, it sends a **system message** back through the bus with:
+  - Original task
+  - Raw result
+  - Instructions for the main agent to smoothly summarize it to the user.
+
+From the LLM’s perspective, this is exposed via the `spawn` tool:
+
+- It passes `task`, an optional `label`, and the origin channel/chat id.
+- The user just sees: *“I started a background task; I’ll let you know when it’s done.”*
+
+---
+
+## 🧰 Built‑In Tools (IQQI Edition)
+
+The tool surface is defined in `workspace/TOOLS.md` and implemented in `nanoiqqi/agent/tools/*`.
+
+### File Operations
+
+- **read_file** – read any file within the (optionally sandboxed) workspace
+- **write_file** – write a full file (creating parent directories)
+- **edit_file** – replace specific text fragments
+- **list_dir** – list directory contents
+
+All filesystem tools support a **`restrictToWorkspace`** mode to prevent path traversal.
+
+### Shell Execution
+
+- **exec** – run shell commands (with timeout and blocked dangerous patterns)
+
+Used both interactively and for **cron‑backed reminders**:
+
+```bash
+nanoiqqi cron add --name "morning" --message "Buenos días ☀️" --cron "0 9 * * *"
+nanoiqqi cron list
+```
+
+### Web Access
+
+- **web_search** – Brave Search API integration
+- **web_fetch** – fetch and extract main content (markdown or plain text)
+
+### Image Generation
+
+- **generate_image** – uses OpenRouter image models (e.g. Flux) to generate assets  
+  Images are stored under `workspace/.nanoiqqi/generated/`.
+
+### Communication / Session Tools
+
+- **message** – send structured messages back through the appropriate channel
+- **new_session / dump_session** – manage or export conversational context
+- **cron** – manage scheduled jobs for reminders and automations
+
+### Background Tasks
+
+- **spawn** – launch a subagent in the background (see above)
+
+### LeadsMx: Mexico Leads via DENUE / INEGI
+
+The **LeadsMx** tool plus the `leads_mx` skill make **Mexico B2B prospecting a first‑class workflow**:
+
+- Backed by the official **DENUE / INEGI API**
+- 7 methods: `buscar`, `ficha`, `nombre`, `buscarEntidad`, `buscarAreaAct`, `buscarAreaActEstr`, `cuantificar`
+- Rich Spanish‑language SKILL with:
+  - Guardrails (never send empty strings; never invent IDs or SCIAN codes)
+  - Smart defaults (25‑record pagination, “0/00” conventions)
+  - Heuristics for mapping everyday language (e.g. *“restaurantes en Jalisco”*) to correct parameters
+- Tight integration with other skills:
+  - `leads_mx_localidades` and `leads_mx_municipios` for location codes
+
+To enable:
 
 ```json
 {
-  "channels": {
-    "mochat": {
-      "enabled": true,
-      "base_url": "https://mochat.io",
-      "socket_url": "https://mochat.io",
-      "socket_path": "/socket.io",
-      "claw_token": "claw_xxx",
-      "agent_user_id": "6982abcdef",
-      "sessions": ["*"],
-      "panels": ["*"],
-      "reply_delay_mode": "non-mention",
-      "reply_delay_ms": 120000
+  "tools": {
+    "leads_mx": {
+      "token": "INEGI_DENUE_TOKEN"
     }
   }
 }
 ```
 
+---
 
+## 🎯 Skills
 
-</details>
+Skill system lives under `nanoiqqi/skills/` and follows the **OpenClaw‑style** SKILL format:
 
-</details>
+- YAML front‑matter (name, description, metadata)
+- Markdown instructions (how and when to call tools)
 
-<details>
-<summary><b>Discord</b></summary>
+### Included skills (curated for IQQI)
 
-**1. Create a bot**
-- Go to https://discord.com/developers/applications
-- Create an application → Bot → Add Bot
-- Copy the bot token
+- **`leads_mx`** – Mexico establishments via DENUE (see above)
+- **`leads_mx_localidades` / `leads_mx_municipios`** – catalog helpers for geographic codes
+- **`github`** – use `gh` CLI for PRs, issues, and reviews
+- **`weather`** – wttr.in + Open‑Meteo for simple forecasts
+- **`summarize`** – long‑form URL / file / YouTube summaries
+- **`tmux`** – remote tmux control for ops workflows
+- **`clawhub`** – discover and install public skills from ClawHub
+- **`skill-creator`** – scaffold new skills directly from within the agent
 
-**2. Enable intents**
-- In the Bot settings, enable **MESSAGE CONTENT INTENT**
-- (Optional) Enable **SERVER MEMBERS INTENT** if you plan to use allow lists based on member data
+Skills are loaded dynamically by `nanoiqqi/agent/skills.py` and surfaced to the LLM via system context, so you can iterate on them without restarting the entire stack.
 
-**3. Get your User ID**
-- Discord Settings → Advanced → enable **Developer Mode**
-- Right-click your avatar → **Copy User ID**
+---
 
-**4. Configure**
+## 🧩 MCP (Model Context Protocol)
+
+nanoiqqi can attach to any compatible **MCP server**, local or remote.
+
+Add MCP servers under `tools.mcpServers` in `config.json`:
 
 ```json
 {
-  "channels": {
-    "discord": {
-      "enabled": true,
-      "token": "YOUR_BOT_TOKEN",
-      "allowFrom": ["YOUR_USER_ID"]
+  "tools": {
+    "mcpServers": {
+      "filesystem": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/dir"]
+      },
+      "my-remote-mcp": {
+        "url": "https://example.com/mcp/",
+        "headers": {
+          "Authorization": "Bearer xxxxx"
+        }
+      }
     }
   }
 }
 ```
 
-**5. Invite the bot**
-- OAuth2 → URL Generator
-- Scopes: `bot`
-- Bot Permissions: `Send Messages`, `Read Message History`
-- Open the generated invite URL and add the bot to your server
+On startup, the agent connects these servers and registers their tools into the main `ToolRegistry`. MCP tools are **only available to the main agent**, not to subagents.
 
-**6. Run**
+---
 
-```bash
-nanobot gateway
-```
+## 💬 Channels (Chat Apps)
 
-</details>
-
-<details>
-<summary><b>WhatsApp</b></summary>
-
-Requires **Node.js ≥18**.
-
-**1. Link device**
+The `nanoiqqi/channels/` package wires the agent into multiple chat backends via the **gateway** process:
 
 ```bash
-nanobot channels login
-# Scan QR with WhatsApp → Settings → Linked Devices
+nanoiqqi gateway
 ```
 
-**2. Configure**
+Supported channels (per `config.json`):
+
+| Channel      | Notes                                           |
+|--------------|-------------------------------------------------|
+| **Telegram** | Bot token from `@BotFather`                     |
+| **Discord**  | Bot token + Message Content intent              |
+| **WhatsApp** | Device link via QR (`nanoiqqi channels login`)  |
+| **Feishu**   | WebSocket long‑connection (no public IP needed) |
+| **Mochat**   | Claw‑style IM; can auto‑configure from a skill  |
+| **DingTalk** | Stream mode                                     |
+| **Slack**    | Socket Mode (no public URL)                     |
+| **Email**    | IMAP + SMTP (Gmail app password etc.)           |
+| **QQ**       | botpy WebSocket; private chats only (for now)   |
+
+Each channel supports an `allowFrom` allowlist in `config.json` to restrict who can talk to your agent.
+
+---
+
+## 🖥️ IQQI Office / Brain Office
+
+The **Brain Office** app (see `brain-office/`) powers the IQQI Office UI:
+
+- Backend: **FastAPI** (`/events` for POST, `/ws` for WebSocket)
+- Frontend: **React + Vite + TypeScript** (served at `/` in production)
+- Agent: sends events for **tool_start**, **tool_end**, **waiting_input**, **turn_end**, **subagent_start**, **subagent_end**
+
+### Run Brain Office locally
+
+```bash
+pip install -e ".[brain-office]"
+
+cd brain-office/backend
+uvicorn app:app --reload --port 8765
+
+cd ../frontend
+npm install
+npm run dev
+```
+
+Open `http://localhost:5173` to see the UI.  
+By default, nanoiqqi sends events to `http://localhost:8765`.
+
+In `~/.nanoiqqi/config.json` you can override:
 
 ```json
 {
-  "channels": {
-    "whatsapp": {
-      "enabled": true,
-      "allowFrom": ["+1234567890"]
-    }
+  "brainOffice": {
+    "url": "http://localhost:8765"
   }
 }
 ```
 
-**3. Run** (two terminals)
+---
 
-```bash
-# Terminal 1
-nanobot channels login
+## ⚙️ Configuration Overview
 
-# Terminal 2
-nanobot gateway
-```
+**Config file**: `~/.nanoiqqi/config.json`
 
-</details>
-
-<details>
-<summary><b>Feishu (飞书)</b></summary>
-
-Uses **WebSocket** long connection — no public IP required.
-
-**1. Create a Feishu bot**
-- Visit [Feishu Open Platform](https://open.feishu.cn/app)
-- Create a new app → Enable **Bot** capability
-- **Permissions**: Add `im:message` (send messages)
-- **Events**: Add `im.message.receive_v1` (receive messages)
-  - Select **Long Connection** mode (requires running nanobot first to establish connection)
-- Get **App ID** and **App Secret** from "Credentials & Basic Info"
-- Publish the app
-
-**2. Configure**
+High‑level structure:
 
 ```json
 {
-  "channels": {
-    "feishu": {
-      "enabled": true,
-      "appId": "cli_xxx",
-      "appSecret": "xxx",
-      "encryptKey": "",
-      "verificationToken": "",
-      "allowFrom": []
+  "providers": { ... },
+  "agents": {
+    "defaults": {
+      "model": "openrouter/...",
+      "temperature": 0.7
     }
+  },
+  "channels": {
+    "telegram": { "enabled": true, "token": "..." }
+  },
+  "tools": {
+    "restrictToWorkspace": true,
+    "leads_mx": { "token": "..." },
+    "mcpServers": { ... }
+  },
+  "brainOffice": {
+    "url": "http://localhost:8765"
   }
 }
 ```
 
-> `encryptKey` and `verificationToken` are optional for Long Connection mode.
-> `allowFrom`: Leave empty to allow all users, or add `["ou_xxx"]` to restrict access.
+### Providers (examples)
 
-**3. Run**
+The following providers are supported out of the box (see `nanoiqqi/providers/registry.py`):
 
-```bash
-nanobot gateway
-```
+- `openrouter` – primary router backing (recommended)
+- `anthropic`, `openai`, `deepseek`, `gemini`, `minimax`, `moonshot`, `siliconflow`, `zhipu`, `volcengine`, `dashscope`
+- `vllm` – any local OpenAI‑compatible server
+- `custom` – arbitrary OpenAI‑compatible API (LM Studio, self‑hosted, Azure, etc.)
+- `openai_codex`, `github_copilot` – OAuth‑based providers via `nanoiqqi provider login ...`
 
-> [!TIP]
-> Feishu uses WebSocket to receive messages — no webhook or public IP needed!
+All of these plug into the same `SmartRouter` pipeline.
 
-</details>
+---
 
-<details>
-<summary><b>QQ (QQ单聊)</b></summary>
+## 🛠️ CLI Reference
 
-Uses **botpy SDK** with WebSocket — no public IP required. Currently supports **private messages only**.
+| Command                               | Description                               |
+|---------------------------------------|-------------------------------------------|
+| `nanoiqqi onboard`                    | Initialize config & workspace             |
+| `nanoiqqi agent`                      | Interactive chat                          |
+| `nanoiqqi agent -m "..."`             | One‑shot chat                             |
+| `nanoiqqi agent --logs`               | Chat with streaming logs                  |
+| `nanoiqqi gateway`                    | Start channel gateway                     |
+| `nanoiqqi status`                     | Show provider / channel status            |
+| `nanoiqqi provider login openai-codex`| OAuth login for OpenAI Codex              |
+| `nanoiqqi channels login`             | Link WhatsApp (QR scan)                   |
+| `nanoiqqi channels status`            | Show channel status                       |
+| `nanoiqqi cron add ...`               | Add a scheduled job                       |
+| `nanoiqqi cron list`                  | List cron jobs                            |
+| `nanoiqqi cron remove <job_id>`       | Remove a cron job                         |
 
-**1. Register & create bot**
-- Visit [QQ Open Platform](https://q.qq.com) → Register as a developer (personal or enterprise)
-- Create a new bot application
-- Go to **开发设置 (Developer Settings)** → copy **AppID** and **AppSecret**
+Exit interactive mode with `exit`, `quit`, `/exit`, `/quit`, `:q`, or `Ctrl+D`.
 
-**2. Set up sandbox for testing**
-- In the bot management console, find **沙箱配置 (Sandbox Config)**
-- Under **在消息列表配置**, click **添加成员** and add your own QQ number
-- Once added, scan the bot's QR code with mobile QQ → open the bot profile → tap "发消息" to start chatting
+---
 
-**3. Configure**
+## 🐳 Docker
 
-> - `allowFrom`: Leave empty for public access, or add user openids to restrict. You can find openids in the nanobot logs when a user messages the bot.
-> - For production: submit a review in the bot console and publish. See [QQ Bot Docs](https://bot.q.qq.com/wiki/) for the full publishing flow.
-
-```json
-{
-  "channels": {
-    "qq": {
-      "enabled": true,
-      "appId": "YOUR_APP_ID",
-      "secret": "YOUR_APP_SECRET",
-      "allowFrom": []
-    }
-  }
-}
-```
-
-**4. Run**
+Example (adapted to this repo; see `docker-compose.yml` for exact service names):
 
 ```bash
-nanobot gateway
+# Build image
+docker build -t nanoiqqi .
+
+# First‑time setup
+docker run -v ~/.nanoiqqi:/root/.nanoiqqi --rm nanoiqqi onboard
+vim ~/.nanoiqqi/config.json  # add API keys
+
+# Run gateway
+docker run -v ~/.nanoiqqi:/root/.nanoiqqi -p 18790:18790 nanoiqqi gateway
+
+# One‑shot CLI
+docker run -v ~/.nanoiqqi:/root/.nanoiqqi --rm nanoiqqi agent -m "Hello from Docker"
 ```
 
-Now send a message to the bot from QQ — it should respond!
+When using `docker compose`, Brain Office and the agent can be run in a single stack so the IQQI Office UI is always live.
 
-</details>
+---
 
-<details>
-<summary><b>DingTalk (钉钉)</b></summary>
-
-Uses **Stream Mode** — no public IP required.
-
-**1. Create a DingTalk bot**
-- Visit [DingTalk Open Platform](https://open-dev.dingtalk.com/)
-- Create a new app -> Add **Robot** capability
-- **Configuration**:
-  - Toggle **Stream Mode** ON
-- **Permissions**: Add necessary permissions for sending messages
-- Get **AppKey** (Client ID) and **AppSecret** (Client Secret) from "Credentials"
-- Publish the app
-
-**2. Configure**
-
-```json
-{
-  "channels": {
-    "dingtalk": {
-      "enabled": true,
-      "clientId": "YOUR_APP_KEY",
-      "clientSecret": "YOUR_APP_SECRET",
-      "allowFrom": []
-    }
-  }
-}
-```
-
-> `allowFrom`: Leave empty to allow all users, or add `["staffId"]` to restrict access.
-
-**3. Run**
-
-```bash
-nanobot gateway
-```
-
-</details>
-
-<details>
-<summary><b>Slack</b></summary>
-
-Uses **Socket Mode** — no public URL required.
-
-**1. Create a Slack app**
-- Go to [Slack API](https://api.slack.com/apps) → **Create New App** → "From scratch"
-- Pick a name and select your workspace
-
-**2. Configure the app**
-- **Socket Mode**: Toggle ON → Generate an **App-Level Token** with `connections:write` scope → copy it (`xapp-...`)
-- **OAuth & Permissions**: Add bot scopes: `chat:write`, `reactions:write`, `app_mentions:read`
-- **Event Subscriptions**: Toggle ON → Subscribe to bot events: `message.im`, `message.channels`, `app_mention` → Save Changes
-- **App Home**: Scroll to **Show Tabs** → Enable **Messages Tab** → Check **"Allow users to send Slash commands and messages from the messages tab"**
-- **Install App**: Click **Install to Workspace** → Authorize → copy the **Bot Token** (`xoxb-...`)
-
-**3. Configure nanobot**
-
-```json
-{
-  "channels": {
-    "slack": {
-      "enabled": true,
-      "botToken": "xoxb-...",
-      "appToken": "xapp-...",
-      "groupPolicy": "mention"
-    }
-  }
-}
-```
-
-**4. Run**
-
-```bash
-nanobot gateway
-```
-
-DM the bot directly or @mention it in a channel — it should respond!
-
-> [!TIP]
-> - `groupPolicy`: `"mention"` (default — respond only when @mentioned), `"open"` (respond to all channel messages), or `"allowlist"` (restrict to specific channels).
-> - DM policy defaults to open. Set `"dm": {"enabled": false}` to disable DMs.
-
-</details>
-
-<details>
-<summary><b>Email</b></summary>
-
-Give nanobot its own email account. It polls **IMAP** for incoming mail and replies via **SMTP** — like a personal email assistant.
-
-**1. Get credentials (Gmail example)**
-- Create a dedicated Gmail account for your bot (e.g. `my-nanobot@gmail.com`)
-- Enable 2-Step Verification → Create an [App Password](https://myaccount.google.com/apppasswords)
-- Use this app password for both IMAP and SMTP
-
-**2. Configure**
-
-> - `consentGranted` must be `true` to allow mailbox access. This is a safety gate — set `false` to fully disable.
-> - `allowFrom`: Leave empty to accept emails from anyone, or restrict to specific senders.
-> - `smtpUseTls` and `smtpUseSsl` default to `true` / `false` respectively, which is correct for Gmail (port 587 + STARTTLS). No need to set them explicitly.
-> - Set `"autoReplyEnabled": false` if you only want to read/analyze emails without sending automatic replies.
-
-```json
-{
-  "channels": {
-    "email": {
-      "enabled": true,
-      "consentGranted": true,
-      "imapHost": "imap.gmail.com",
-      "imapPort": 993,
-      "imapUsername": "my-nanobot@gmail.com",
-      "imapPassword": "your-app-password",
-      "smtpHost": "smtp.gmail.com",
-      "smtpPort": 587,
-      "smtpUsername": "my-nanobot@gmail.com",
-      "smtpPassword": "your-app-password",
-      "fromAddress": "my-nanobot@gmail.com",
-      "allowFrom": ["your-real-email@gmail.com"]
-    }
-  }
-}
-```
-
-
-**3. Run**
-
-```bash
-nanobot gateway
-```
-
-</details>
-
-## 🌐 Agent Social Network
-
- nanobot is capable of linking to the agent social network (agent community). **Just send one message and your nanobot joins automatically!**
-
-| Platform | How to Join (send this message to your bot) |
-|----------|-------------|
-| [**Moltbook**](https://www.moltbook.com/) | `Read https://moltbook.com/skill.md and follow the instructions to join Moltbook` |
-| [**ClawdChat**](https://clawdchat.ai/) | `Read https://clawdchat.ai/skill.md and follow the instructions to join ClawdChat` |
-
-Simply send the command above to your nanobot (via CLI or any chat channel), and it will handle the rest.
 
 ## ⚙️ Configuration
 
-Config file: `~/.nanobot/config.json`
+Config file: `~/.nanoiqqi/config.json`
 
 ### Providers
 
@@ -602,8 +495,8 @@ Config file: `~/.nanobot/config.json`
 | `moonshot` | LLM (Moonshot/Kimi) | [platform.moonshot.cn](https://platform.moonshot.cn) |
 | `zhipu` | LLM (Zhipu GLM) | [open.bigmodel.cn](https://open.bigmodel.cn) |
 | `vllm` | LLM (local, any OpenAI-compatible server) | — |
-| `openai_codex` | LLM (Codex, OAuth) | `nanobot provider login openai-codex` |
-| `github_copilot` | LLM (GitHub Copilot, OAuth) | `nanobot provider login github-copilot` |
+| `openai_codex` | LLM (Codex, OAuth) | `nanoiqqi provider login openai-codex` |
+| `github_copilot` | LLM (GitHub Copilot, OAuth) | `nanoiqqi provider login github-copilot` |
 
 <details>
 <summary><b>OpenAI Codex (OAuth)</b></summary>
@@ -612,10 +505,10 @@ Codex uses OAuth instead of API keys. Requires a ChatGPT Plus or Pro account.
 
 **1. Login:**
 ```bash
-nanobot provider login openai-codex
+nanoiqqi provider login openai-codex
 ```
 
-**2. Set model** (merge into `~/.nanobot/config.json`):
+**2. Set model** (merge into `~/.nanoiqqi/config.json`):
 ```json
 {
   "agents": {
@@ -628,7 +521,7 @@ nanobot provider login openai-codex
 
 **3. Chat:**
 ```bash
-nanobot agent -m "Hello!"
+nanoiqqi agent -m "Hello!"
 ```
 
 > Docker users: use `docker run -it` for interactive OAuth login.
@@ -670,7 +563,7 @@ Run your own model with vLLM or any OpenAI-compatible server, then add to config
 vllm serve meta-llama/Llama-3.1-8B-Instruct --port 8000
 ```
 
-**2. Add to config** (partial — merge into `~/.nanobot/config.json`):
+**2. Add to config** (partial — merge into `~/.nanoiqqi/config.json`):
 
 *Provider (key can be any non-empty string for local):*
 ```json
@@ -700,23 +593,23 @@ vllm serve meta-llama/Llama-3.1-8B-Instruct --port 8000
 <details>
 <summary><b>Adding a New Provider (Developer Guide)</b></summary>
 
-nanobot uses a **Provider Registry** (`nanobot/providers/registry.py`) as the single source of truth.
+nanoiqqi uses a **Provider Registry** (`nanoiqqi/providers/registry.py`) as the single source of truth.
 Adding a new provider only takes **2 steps** — no if-elif chains to touch.
 
-**Step 1.** Add a `ProviderSpec` entry to `PROVIDERS` in `nanobot/providers/registry.py`:
+**Step 1.** Add a `ProviderSpec` entry to `PROVIDERS` in `nanoiqqi/providers/registry.py`:
 
 ```python
 ProviderSpec(
     name="myprovider",                   # config field name
     keywords=("myprovider", "mymodel"),  # model-name keywords for auto-matching
     env_key="MYPROVIDER_API_KEY",        # env var for LiteLLM
-    display_name="My Provider",          # shown in `nanobot status`
+    display_name="My Provider",          # shown in `nanoiqqi status`
     litellm_prefix="myprovider",         # auto-prefix: model → myprovider/model
     skip_prefixes=("myprovider/",),      # don't double-prefix
 )
 ```
 
-**Step 2.** Add a field to `ProvidersConfig` in `nanobot/config/schema.py`:
+**Step 2.** Add a field to `ProvidersConfig` in `nanoiqqi/config/schema.py`:
 
 ```python
 class ProvidersConfig(BaseModel):
@@ -724,7 +617,7 @@ class ProvidersConfig(BaseModel):
     myprovider: ProviderConfig = ProviderConfig()
 ```
 
-That's it! Environment variables, model prefixing, config matching, and `nanobot status` display will all work automatically.
+That's it! Environment variables, model prefixing, config matching, and `nanoiqqi status` display will all work automatically.
 
 **Common `ProviderSpec` options:**
 
@@ -747,7 +640,7 @@ That's it! Environment variables, model prefixing, config matching, and `nanobot
 > [!TIP]
 > The config format is compatible with Claude Desktop / Cursor. You can copy MCP server configs directly from any MCP server's README.
 
-nanobot supports [MCP](https://modelcontextprotocol.io/) — connect external tool servers and use them as native agent tools.
+nanoiqqi supports [MCP](https://modelcontextprotocol.io/) — connect external tool servers and use them as native agent tools.
 
 Add MCP servers to your `config.json`:
 
@@ -797,16 +690,16 @@ MCP tools are automatically discovered and registered on startup. The LLM can us
 
 | Command | Description |
 |---------|-------------|
-| `nanobot onboard` | Initialize config & workspace |
-| `nanobot agent -m "..."` | Chat with the agent |
-| `nanobot agent` | Interactive chat mode |
-| `nanobot agent --no-markdown` | Show plain-text replies |
-| `nanobot agent --logs` | Show runtime logs during chat |
-| `nanobot gateway` | Start the gateway |
-| `nanobot status` | Show status |
-| `nanobot provider login openai-codex` | OAuth login for providers |
-| `nanobot channels login` | Link WhatsApp (scan QR) |
-| `nanobot channels status` | Show channel status |
+| `nanoiqqi onboard` | Initialize config & workspace |
+| `nanoiqqi agent -m "..."` | Chat with the agent |
+| `nanoiqqi agent` | Interactive chat mode |
+| `nanoiqqi agent --no-markdown` | Show plain-text replies |
+| `nanoiqqi agent --logs` | Show runtime logs during chat |
+| `nanoiqqi gateway` | Start the gateway |
+| `nanoiqqi status` | Show status |
+| `nanoiqqi provider login openai-codex` | OAuth login for providers |
+| `nanoiqqi channels login` | Link WhatsApp (scan QR) |
+| `nanoiqqi channels status` | Show channel status |
 
 Interactive mode exits: `exit`, `quit`, `/exit`, `/quit`, `:q`, or `Ctrl+D`.
 
@@ -815,14 +708,14 @@ Interactive mode exits: `exit`, `quit`, `/exit`, `/quit`, `:q`, or `Ctrl+D`.
 
 ```bash
 # Add a job
-nanobot cron add --name "daily" --message "Good morning!" --cron "0 9 * * *"
-nanobot cron add --name "hourly" --message "Check status" --every 3600
+nanoiqqi cron add --name "daily" --message "Good morning!" --cron "0 9 * * *"
+nanoiqqi cron add --name "hourly" --message "Check status" --every 3600
 
 # List jobs
-nanobot cron list
+nanoiqqi cron list
 
 # Remove a job
-nanobot cron remove <job_id>
+nanoiqqi cron remove <job_id>
 ```
 
 </details>
@@ -830,19 +723,19 @@ nanobot cron remove <job_id>
 ## 🐳 Docker
 
 > [!TIP]
-> The `-v ~/.nanobot:/root/.nanobot` flag mounts your local config directory into the container, so your config and workspace persist across container restarts.
+> The `-v ~/.nanoiqqi:/root/.nanoiqqi` flag mounts your local config directory into the container, so your config and workspace persist across container restarts.
 
 ### Docker Compose
 
 ```bash
-docker compose run --rm nanobot-cli onboard   # first-time setup
-vim ~/.nanobot/config.json                     # add API keys
-docker compose up -d nanobot-gateway           # start gateway
+docker compose run --rm nanoiqqi-cli onboard   # first-time setup
+vim ~/.nanoiqqi/config.json                    # add API keys
+docker compose up -d nanoiqqi-gateway           # start gateway
 ```
 
 ```bash
-docker compose run --rm nanobot-cli agent -m "Hello!"   # run CLI
-docker compose logs -f nanobot-gateway                   # view logs
+docker compose run --rm nanoiqqi-cli agent -m "Hello!"   # run CLI
+docker compose logs -f nanoiqqi-gateway                 # view logs
 docker compose down                                      # stop
 ```
 
@@ -850,26 +743,26 @@ docker compose down                                      # stop
 
 ```bash
 # Build the image
-docker build -t nanobot .
+docker build -t nanoiqqi .
 
 # Initialize config (first time only)
-docker run -v ~/.nanobot:/root/.nanobot --rm nanobot onboard
+docker run -v ~/.nanoiqqi:/root/.nanoiqqi --rm nanoiqqi onboard
 
 # Edit config on host to add API keys
-vim ~/.nanobot/config.json
+vim ~/.nanoiqqi/config.json
 
 # Run gateway (connects to enabled channels, e.g. Telegram/Discord/Mochat)
-docker run -v ~/.nanobot:/root/.nanobot -p 18790:18790 nanobot gateway
+docker run -v ~/.nanoiqqi:/root/.nanoiqqi -p 18790:18790 nanoiqqi gateway
 
 # Or run a single command
-docker run -v ~/.nanobot:/root/.nanobot --rm nanobot agent -m "Hello!"
-docker run -v ~/.nanobot:/root/.nanobot --rm nanobot status
+docker run -v ~/.nanoiqqi:/root/.nanoiqqi --rm nanoiqqi agent -m "Hello!"
+docker run -v ~/.nanoiqqi:/root/.nanoiqqi --rm nanoiqqi status
 ```
 
 ## 📁 Project Structure
 
 ```
-nanobot/
+nanoiqqi/
 ├── agent/          # 🧠 Core agent logic
 │   ├── loop.py     #    Agent loop (LLM ↔ tool execution)
 │   ├── context.py  #    Prompt builder
@@ -896,48 +789,23 @@ nanobot/
 [Brain Office](brain-office/README.md) is a small web app that shows the agent as a character in a pixel-art office. The character state updates in real time (reading, typing, running commands, waiting for input). **Activity events are always sent**; you only set `brainOffice.url` if the backend is not at `http://localhost:8765`.
 
 - **Run:** Start the backend (`cd brain-office/backend && uvicorn app:app --port 8765`), then the frontend (`cd brain-office/frontend && npm run dev`). Open http://localhost:5173. Or use Docker: `docker compose up -d brain-office` and open http://localhost:8765.
-- **Configure URL (optional):** In `~/.nanobot/config.json` set `brainOffice.url: "http://localhost:8765"` (or `http://brain-office:8765` when the agent runs in Docker).
-- **Event flow:** Nanobot → POST `/events` → Backend → WebSocket `/ws` → Frontend.
+- **Configure URL (optional):** In `~/.nanoiqqi/config.json` set `brainOffice.url: "http://localhost:8765"` (or `http://brain-office:8765` when the agent runs in Docker).
+- **Event flow:** nanoiqqi → POST `/events` → Backend → WebSocket `/ws` → Frontend.
 
 See [brain-office/README.md](brain-office/README.md) for details.
 
-## 🤝 Contribute & Roadmap
+## 🤝 Contributing
 
-PRs welcome! The codebase is intentionally small and readable. 🤗
+We keep nanoiqqi **intentionally small and opinionated** so it stays easy to audit and fork.
 
-**Roadmap** — Pick an item and [open a PR](https://github.com/HKUDS/nanobot/pulls)!
+- Open issues or PRs in [`iqqipro/nanoiqqi`](https://github.com/iqqipro/nanoiqqi).
+- To extend nanoiqqi you can:
+  - Add providers in `nanoiqqi/providers/registry.py`
+  - Add tools in `nanoiqqi/agent/tools/` and register them via `register_shared_tools`
+  - Add skills in `nanoiqqi/skills/` with `SKILL.md` front‑matter
 
-- [ ] **Multi-modal** — See and hear (images, voice, video)
-- [ ] **Long-term memory** — Never forget important context
-- [ ] **Better reasoning** — Multi-step planning and reflection
-- [ ] **More integrations** — Calendar and more
-- [ ] **Self-improvement** — Learn from feedback and mistakes
+---
 
-### Contributors
+## ⚖️ License
 
-<a href="https://github.com/HKUDS/nanobot/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=HKUDS/nanobot&max=100&columns=12&updated=20260210" alt="Contributors" />
-</a>
-
-
-## ⭐ Star History
-
-<div align="center">
-  <a href="https://star-history.com/#HKUDS/nanobot&Date">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=HKUDS/nanobot&type=Date&theme=dark" />
-      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=HKUDS/nanobot&type=Date" />
-      <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=HKUDS/nanobot&type=Date" style="border-radius: 15px; box-shadow: 0 0 30px rgba(0, 217, 255, 0.3);" />
-    </picture>
-  </a>
-</div>
-
-<p align="center">
-  <em> Thanks for visiting ✨ nanobot!</em><br><br>
-  <img src="https://visitor-badge.laobi.icu/badge?page_id=HKUDS.nanobot&style=for-the-badge&color=00d4ff" alt="Views">
-</p>
-
-
-<p align="center">
-  <sub>nanobot is for educational, research, and technical exchange purposes only</sub>
-</p>
+This project is licensed under the **MIT License** – see `LICENSE` for details.
