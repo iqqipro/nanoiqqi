@@ -1,6 +1,6 @@
 # Heartbeat Tasks
 
-This file is checked every 55 minutes by your nanobot agent (using gemini-2.5-flash-lite).
+This file is checked periodically by your nanoiqqi agent.
 Add tasks below that you want the agent to work on periodically.
 
 If this file has no tasks (only headers and comments), the agent will skip the heartbeat.
