@@ -1,0 +1,1 @@
+"""Brain Office bridge helpers."""
