@@ -16,9 +16,12 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+from prompt_toolkit import Application
 from prompt_toolkit import PromptSession
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.history import FileHistory
+from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.layout import Layout, HSplit, FormattedTextControl, Window
 from prompt_toolkit.patch_stdout import patch_stdout
 
 from nanoiqqi import __version__, __logo__, __brand__
@@ -399,7 +402,7 @@ This file stores important information that should persist across sessions.
 
 
 def _onboard_prompt_skills(workspace: Path, config: Config) -> None:
-    """Ask user which skills to enable and save to config."""
+    """Ask user which skills to enable (interactive checklist: Enter to toggle, Tab to confirm)."""
     from nanoiqqi.config.loader import save_config
     from nanoiqqi.agent.skills import SkillsLoader
 
@@ -409,34 +412,116 @@ def _onboard_prompt_skills(workspace: Path, config: Config) -> None:
         console.print(f"[bold {_YELLOW_BOLT}]3. Skills[/bold {_YELLOW_BOLT}]  [dim]No skills found; skip.[/dim]")
         return
 
-    console.print(f"[bold {_YELLOW_BOLT}]3. Skills[/bold {_YELLOW_BOLT}]  [dim]Choose skills to load by default (loaded into every conversation).[/dim]")
-    table = Table(show_header=True, header_style=f"bold {_GREEN_BOLT}", border_style="dim")
-    table.add_column("#", style="dim", width=4)
-    table.add_column("Skill", style=_GREEN_BOLT)
-    table.add_column("Description", max_width=56, overflow="ellipsis")
-    for i, s in enumerate(skills, 1):
-        desc = loader._get_skill_description(s["name"]) or s["name"]
-        table.add_row(str(i), s["name"], desc)
-    console.print(table)
-    console.print()
-    raw = typer.prompt(
-        "   Enter numbers to enable (e.g. 1,3,5) or Enter to skip",
-        default="",
-        show_default=False,
-    )
-    raw = raw.strip()
-    if not raw:
-        console.print("   [dim]No skills selected.[/dim]")
+    skill_names = [s["name"] for s in skills]
+    chosen: list[str]
+
+    # Sin TTY (tests, CI): fallback a prompt de números
+    if not sys.stdin.isatty() or not sys.stdout.isatty():
+        console.print(f"[bold {_YELLOW_BOLT}]3. Skills[/bold {_YELLOW_BOLT}]  [dim]Choose skills to load by default.[/dim]")
+        for i, s in enumerate(skills, 1):
+            desc = loader._get_skill_description(s["name"]) or s["name"]
+            short = (desc[:50] + "...") if len(desc) > 50 else desc
+            console.print(f"   [dim]{i}.[/dim] {s['name']} — {short}")
+        raw = typer.prompt("   Enter numbers to enable (e.g. 1,3,5) or Enter to skip", default="", show_default=False)
+        chosen = []
+        for part in (raw or "").replace(",", " ").split():
+            if part.strip().isdigit():
+                idx = int(part.strip())
+                if 1 <= idx <= len(skills):
+                    chosen.append(skills[idx - 1]["name"])
+        chosen = list(dict.fromkeys(chosen))
+        config.agents.defaults.always_skills = chosen
+        save_config(config)
+        console.print(f"   [bold {_GREEN_BOLT}]✓[/bold {_GREEN_BOLT}] Enabled: {', '.join(chosen) or 'none'}")
         return
-    chosen: list[str] = []
-    for part in raw.replace(",", " ").split():
-        part = part.strip()
-        if not part.isdigit():
-            continue
-        idx = int(part)
-        if 1 <= idx <= len(skills):
-            chosen.append(skills[idx - 1]["name"])
-    chosen = list(dict.fromkeys(chosen))
+
+    n = len(skill_names)
+    selected: set[int] = set()
+    cursor_i: list[int] = [0]  # mutable so key bindings can update
+    # Special rows: n = Select all, n+1 = Finish selection
+    row_select_all = n
+    row_finish = n + 1
+
+    def make_formatted_text():
+        from prompt_toolkit.formatted_text import FormattedText
+        fragments = []
+        for i in range(n):
+            is_cursor = i == cursor_i[0]
+            mark = "[x]" if i in selected else "[ ]"
+            prefix = " > " if is_cursor else "   "
+            style = "bold #b7ff00" if is_cursor else ""
+            fragments.append((style, prefix + mark + " " + skill_names[i] + "\n"))
+        is_cursor = cursor_i[0] == row_select_all
+        prefix = " > " if is_cursor else "   "
+        style = "bold #b7ff00" if is_cursor else "bold"
+        fragments.append((style, prefix + "[*] Select all\n"))
+        is_cursor = cursor_i[0] == row_finish
+        prefix = " > " if is_cursor else "   "
+        style = "bold #b7ff00" if is_cursor else "bold"
+        fragments.append((style, prefix + "[OK] Finish selection\n"))
+        return fragments
+
+    title = FormattedTextControl(
+        text=[
+            ("bold #f0fc08", "3. Skills  "),
+            ("", "↑/↓ move · Enter = toggle / select all / finish\n\n"),
+        ]
+    )
+    body = FormattedTextControl(text=lambda: make_formatted_text())
+    footer = FormattedTextControl(text=[("dim", "   Tab = finish selection\n")])
+
+    layout = Layout(HSplit([Window(content=title), Window(content=body), Window(content=footer)]))
+
+    kb = KeyBindings()
+    result_ref: list[list[str] | None] = [None]
+
+    @kb.add("up")
+    def _up(event):
+        cursor_i[0] = max(0, cursor_i[0] - 1)
+        event.app.invalidate()
+
+    @kb.add("down")
+    def _down(event):
+        cursor_i[0] = min(row_finish, cursor_i[0] + 1)
+        event.app.invalidate()
+
+    @kb.add("enter")
+    def _toggle(event):
+        i = cursor_i[0]
+        if i == row_select_all:
+            if len(selected) < n:
+                selected.clear()
+                selected.update(range(n))
+            else:
+                selected.clear()
+            event.app.invalidate()
+        elif i == row_finish:
+            result_ref[0] = [skill_names[j] for j in sorted(selected)]
+            event.app.exit()
+        else:
+            if i in selected:
+                selected.discard(i)
+            else:
+                selected.add(i)
+            event.app.invalidate()
+
+    @kb.add("tab")
+    def _confirm(event):
+        result_ref[0] = [skill_names[i] for i in sorted(selected)]
+        event.app.exit()
+
+    @kb.add("c-c")
+    def _abort(event):
+        result_ref[0] = []
+        event.app.exit()
+
+    app = Application(layout=layout, key_bindings=kb, full_screen=False)
+    try:
+        app.run()
+    except Exception:
+        result_ref[0] = []
+
+    chosen = result_ref[0] or []
     config.agents.defaults.always_skills = chosen
     save_config(config)
     console.print(f"   [bold {_GREEN_BOLT}]✓[/bold {_GREEN_BOLT}] Enabled: {', '.join(chosen) or 'none'}")
@@ -617,7 +702,7 @@ def gateway(
         restrict_to_workspace=config.tools.restrict_to_workspace,
         session_manager=session_manager,
         mcp_servers=config.tools.mcp_servers,
-        image_gen_api_key=config.providers.openrouter.api_key or None,
+        image_gen_api_key=config.tools.image.api_key or config.providers.openrouter.api_key or None,
         image_gen_model=config.tools.image.model or None,
         subagent_provider=subagent_provider,
         subagent_model=(config.agents.defaults.subagent_model or "").strip() or None,
@@ -759,7 +844,7 @@ def agent(
         cron_service=cron,
         restrict_to_workspace=config.tools.restrict_to_workspace,
         mcp_servers=config.tools.mcp_servers,
-        image_gen_api_key=config.providers.openrouter.api_key or None,
+        image_gen_api_key=config.tools.image.api_key or config.providers.openrouter.api_key or None,
         image_gen_model=config.tools.image.model or None,
         subagent_provider=subagent_provider,
         subagent_model=(config.agents.defaults.subagent_model or "").strip() or None,
@@ -1288,7 +1373,7 @@ def cron_run(
         exec_config=config.tools.exec,
         restrict_to_workspace=config.tools.restrict_to_workspace,
         mcp_servers=config.tools.mcp_servers,
-        image_gen_api_key=config.providers.openrouter.api_key or None,
+        image_gen_api_key=config.tools.image.api_key or config.providers.openrouter.api_key or None,
         image_gen_model=config.tools.image.model or None,
         subagent_provider=subagent_provider,
         subagent_model=(config.agents.defaults.subagent_model or "").strip() or None,

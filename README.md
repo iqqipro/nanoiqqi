@@ -226,7 +226,8 @@ nanoiqqi cron list
 ### Image Generation
 
 - **generate_image** – uses OpenRouter image models (e.g. Flux) to generate assets  
-  Images are stored under `workspace/.nanoiqqi/generated/`.
+  Images are stored under `workspace/.nanoiqqi/generated/`.  
+  Uses `providers.openrouter.apiKey` (or `tools.image.apiKey` if set).
 
 ### Communication / Session Tools
 
@@ -391,24 +392,45 @@ High‑level structure:
   "providers": { ... },
   "agents": {
     "defaults": {
-      "model": "openrouter/...",
+      "model": "openrouter/minimax/minimax-m2.5",
       "temperature": 0.7,
       "always_skills": []
     }
+  },
+  "routing": {
+    "aliases": {},
+    "fallbackModels": [],
+    "heartbeatModel": "openrouter/google/gemini-2.5-flash-lite",
+    "heartbeatIntervalS": 3300,
+    "policy": "balanced",
+    "judgeModel": "openrouter/google/gemini-2.5-flash-lite"
   },
   "channels": {
     "telegram": { "enabled": true, "token": "..." }
   },
   "tools": {
     "restrictToWorkspace": true,
+    "image": { "model": "bytedance-seed/seedream-4.5" },
+    "smart_router": { "apiKey": "" },
     "leads_mx": { "token": "..." },
-    "mcpServers": { ... }
+    "mcpServers": {}
   },
   "brainOffice": {
     "url": "http://localhost:8765"
   }
 }
 ```
+
+Generated config has no API keys by default; add `providers.openrouter.apiKey` (and others) as needed.
+
+#### API keys (resumen)
+
+| Use | Where in config | Get key |
+|-----|-----------------|---------|
+| LLM (chat) and image generation | `providers.openrouter.apiKey` | [openrouter.ai](https://openrouter.ai/keys) |
+| Smart router (automatic model selection) | `tools.smart_router.apiKey` | [artificialanalysis.ai](https://artificialanalysis.ai) (optional) |
+
+Image generation uses `tools.image.apiKey` if set, otherwise `providers.openrouter.apiKey`.
 
 ### Providers (examples)
 

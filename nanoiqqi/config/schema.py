@@ -184,7 +184,7 @@ class AgentDefaults(Base):
     """Default agent configuration."""
 
     workspace: str = "~/.nanoiqqi/workspace"
-    model: str = "anthropic/claude-opus-4-5"
+    model: str = "openrouter/minimax/minimax-m2.5"
     tool_calling_model: str = Field(default="", description="If set, use this model for agent turns (e.g. minimax) to reduce tool-calling hallucinations; overrides smart router for the main loop")
     subagent_model: str = Field(
         default="",
@@ -250,13 +250,13 @@ class RoutingConfig(Base):
 
     aliases: dict[str, str] = Field(default_factory=dict)
     fallback_models: list[str] = Field(default_factory=list)
-    heartbeat_model: str = ""
-    heartbeat_interval_s: int = 30 * 60
+    heartbeat_model: str = "openrouter/google/gemini-2.5-flash-lite"
+    heartbeat_interval_s: int = 3300
     # Five-stage smart routing (OpenRouter)
     smart_routing: bool = False
     policy: Literal["cheap", "balanced", "best", "low_latency"] = "balanced"
     candidate_models: list[str] = Field(default_factory=list, description="OpenRouter model ids; if empty, uses built-in list")
-    judge_model: str = Field(default="", description="Optional small LLM for request classification (e.g. openrouter/google/gemini-2.5-flash-lite)")
+    judge_model: str = Field(default="openrouter/google/gemini-2.5-flash-lite", description="Optional small LLM for request classification")
     weights: dict[str, dict[str, float]] = Field(default_factory=dict, description="Optional per-policy weight overrides")
 
 
@@ -289,7 +289,8 @@ class ExecToolConfig(Base):
 class ImageGenConfig(Base):
     """Image generation tool configuration (OpenRouter modalities)."""
 
-    model: str = "black-forest-labs/flux-2-pro"  # OpenRouter image model id (without openrouter/ prefix)
+    api_key: str = Field(default="", description="OpenRouter API key for image models; if empty, uses providers.openrouter.api_key")
+    model: str = "bytedance-seed/seedream-4.5"  # OpenRouter image model id (without openrouter/ prefix)
 
 
 class LeadsMxConfig(Base):
