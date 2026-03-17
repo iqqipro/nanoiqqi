@@ -709,6 +709,7 @@ def gateway(
         leads_mx_token=config.tools.leads_mx.token or None,
         activity_sink=_make_activity_sink(config),
         always_skills=config.agents.defaults.always_skills or [],
+        mcp2cli_config=config.tools.mcp2cli,
     )
 
     # Set cron callback (needs agent)
@@ -851,6 +852,7 @@ def agent(
         leads_mx_token=config.tools.leads_mx.token or None,
         activity_sink=_make_activity_sink(config),
         always_skills=config.agents.defaults.always_skills or [],
+        mcp2cli_config=config.tools.mcp2cli,
     )
     brain_office_bridge = _make_brain_office_bridge(bus, config, agent_loop)
 
@@ -1380,6 +1382,7 @@ def cron_run(
         leads_mx_token=config.tools.leads_mx.token or None,
         activity_sink=_make_activity_sink(config),
         always_skills=config.agents.defaults.always_skills or [],
+        mcp2cli_config=config.tools.mcp2cli,
     )
 
     store_path = get_data_dir() / "cron" / "jobs.json"

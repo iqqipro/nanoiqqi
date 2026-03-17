@@ -32,13 +32,14 @@ from nanoiqqi.agent.tools.spawn import SpawnTool
 from nanoiqqi.agent.tools.web import WebFetchTool, WebSearchTool
 from nanoiqqi.agent.tools.image_gen import GenerateImageTool
 from nanoiqqi.agent.tools.leads_mx import LeadsMx
+from nanoiqqi.agent.tools.mcp2cli_wrapper import MCP2CLITool, is_mcp2cli_available
 from nanoiqqi.bus.events import InboundMessage, OutboundMessage
 from nanoiqqi.bus.queue import MessageBus
 from nanoiqqi.providers.base import LLMProvider
 from nanoiqqi.session.manager import Session, SessionManager
 
 if TYPE_CHECKING:
-    from nanoiqqi.config.schema import ExecToolConfig
+    from nanoiqqi.config.schema import ExecToolConfig, MCP2CLIConfig
     from nanoiqqi.cron.service import CronService
 
 
@@ -51,11 +52,13 @@ def register_shared_tools(
     image_gen_api_key: str | None,
     image_gen_model: str | None,
     restrict_to_workspace: bool,
+    mcp2cli_config: "MCP2CLIConfig | None" = None,
 ) -> None:
     """
     Register tools shared between main agent and subagents.
     Single source of truth: add new user-facing tools here so both get them.
     MCP tools are registered only on the main agent and are not passed to subagents.
+    When mcp2cli_config is enabled, one lightweight MCP2CLITool per baked_name is registered.
     """
     allowed_dir = workspace if restrict_to_workspace else None
     for cls in (ReadFileTool, WriteFileTool, EditFileTool, ListDirTool):
@@ -76,6 +79,25 @@ def register_shared_tools(
     )
     if leads_mx_token:
         registry.register(LeadsMx(token=leads_mx_token, workspace=workspace))
+
+    # mcp2cli: lazy MCP tools via baked configs (~100–150 tokens per tool)
+    if mcp2cli_config and mcp2cli_config.enabled:
+        if is_mcp2cli_available():
+            for baked_name in mcp2cli_config.baked_tools or []:
+                try:
+                    registry.register(
+                        MCP2CLITool(
+                            baked_name=baked_name,
+                            description=f"MCP tools via mcp2cli (@{baked_name}). Use 'action' and 'args' as needed.",
+                            workspace_path=workspace,
+                            timeout_seconds=mcp2cli_config.timeout_seconds,
+                        )
+                    )
+                    logger.debug("mcp2cli: registered tool for baked config '{}'", baked_name)
+                except ValueError as e:
+                    logger.warning("mcp2cli: skip invalid baked_name {!r}: {}", baked_name, e)
+        else:
+            logger.warning("mcp2cli: enabled but binary not found (pip install mcp2cli)")
 
 
 class SessionCleared(Exception):
@@ -119,6 +141,7 @@ class AgentLoop:
         leads_mx_token: str | None = None,
         activity_sink: ActivitySink | None = None,
         always_skills: list[str] | None = None,
+        mcp2cli_config: "MCP2CLIConfig | None" = None,
     ):
         from nanoiqqi.config.schema import ExecToolConfig
         self.bus = bus
@@ -138,6 +161,7 @@ class AgentLoop:
         self._image_gen_api_key = image_gen_api_key
         self._image_gen_model = image_gen_model
         self._leads_mx_token = (leads_mx_token or "").strip() or None
+        self._mcp2cli_config = mcp2cli_config
 
         self.context = ContextBuilder(
             workspace,
@@ -160,6 +184,7 @@ class AgentLoop:
                 image_gen_api_key=self._image_gen_api_key,
                 image_gen_model=self._image_gen_model,
                 restrict_to_workspace=restrict_to_workspace,
+                mcp2cli_config=self._mcp2cli_config,
             )
             return reg
 
@@ -196,6 +221,7 @@ class AgentLoop:
             image_gen_api_key=self._image_gen_api_key,
             image_gen_model=self._image_gen_model,
             restrict_to_workspace=self.restrict_to_workspace,
+            mcp2cli_config=self._mcp2cli_config,
         )
         self.tools.register(MessageTool(send_callback=self.bus.publish_outbound, workspace=self.workspace))
         self.tools.register(SpawnTool(manager=self.subagents))
