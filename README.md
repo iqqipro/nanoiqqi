@@ -317,6 +317,10 @@ Add MCP servers under `tools.mcpServers` in `config.json`:
 
 On startup, the agent connects these servers and registers their tools into the main `ToolRegistry`. MCP tools are **only available to the main agent**, not to subagents.
 
+### Lazy MCP via mcp2cli (fewer tokens)
+
+To avoid sending full MCP tool schemas to the LLM (~2000–5000 tokens), you can use **mcp2cli** in bake mode: one lightweight tool per baked config (~100–150 tokens). Install with `pip install mcp2cli`, create baked configs with `mcp2cli bake create ...`, then in `config.json` set `tools.mcp2cli.enabled: true` and list your baked names in `tools.mcp2cli.bakedTools`. See [docs/mcp2cli-integration.md](docs/mcp2cli-integration.md) for setup and troubleshooting.
+
 ---
 
 ## 💬 Channels (Chat Apps)
@@ -413,7 +417,12 @@ High‑level structure:
     "image": { "model": "bytedance-seed/seedream-4.5" },
     "smart_router": { "apiKey": "" },
     "leads_mx": { "token": "..." },
-    "mcpServers": {}
+    "mcpServers": { ... },
+    "mcp2cli": {
+      "enabled": false,
+      "bakedTools": [],
+      "timeoutSeconds": 30
+    }
   },
   "brainOffice": {
     "url": "http://localhost:8765"
