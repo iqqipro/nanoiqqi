@@ -328,6 +328,22 @@ class MCPServerConfig(Base):
     headers: dict[str, str] = Field(default_factory=dict)  # HTTP: Custom HTTP Headers
 
 
+class MCP2CLIConfig(Base):
+    """
+    mcp2cli integration: lazy MCP tools via baked configs.
+    When enabled, one lightweight tool per baked_name is registered (~100–150 tokens each).
+    Real execution runs on demand via `mcp2cli @<baked_name> <action> ...`.
+    """
+
+    enabled: bool = Field(default=False, description="Register mcp2cli baked tools")
+    baked_tools: list[str] = Field(
+        default_factory=list,
+        description="List of baked tool names (e.g. filesystem-readonly, github-readonly)",
+    )
+    timeout_seconds: int = Field(default=30, ge=1, le=300, description="Timeout per mcp2cli invocation")
+    cache_dir: str = Field(default="~/.nanoiqqi/.mcp2cli-cache", description="Optional cache directory for mcp2cli")
+
+
 class ToolsConfig(Base):
     """Tools configuration."""
 
@@ -338,6 +354,7 @@ class ToolsConfig(Base):
     leads_mx: LeadsMxConfig = Field(default_factory=LeadsMxConfig)
     restrict_to_workspace: bool = False  # If true, restrict all tool access to workspace directory
     mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
+    mcp2cli: MCP2CLIConfig = Field(default_factory=MCP2CLIConfig)
 
 
 class Config(BaseSettings):
